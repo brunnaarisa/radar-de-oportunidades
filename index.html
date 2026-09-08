@@ -695,9 +695,14 @@ const POPULAR_STOCKS = [
    =========================================================================== */
 const CONVICTION = {
   crypto: {
-    bitcoin:  { tier: 'high',        why: 'Reserva de valor mais madura e institucionalizada do mercado cripto' },
-    ethereum: { tier: 'high',        why: 'Infraestrutura líder do ecossistema — a maior parte do mundo cripto roda nela' },
-    solana:   { tier: 'satellite',   why: 'Upside maior que BTC/ETH, mas risco bem mais alto — só posição pequena' },
+    bitcoin:     { tier: 'high',        why: 'Reserva de valor mais madura e institucionalizada do mercado cripto' },
+    ethereum:    { tier: 'high',        why: 'Infraestrutura líder do ecossistema — a maior parte do mundo cripto roda nela' },
+    solana:      { tier: 'satellite',   why: 'Upside maior que BTC/ETH, mas risco bem mais alto — só posição pequena' },
+    ripple:      { tier: 'speculative', why: 'Alta liquidez e volatilidade — bom pra trade rápido, sem tese de longo prazo clara' },
+    dogecoin:    { tier: 'speculative', why: 'Meme coin de altíssima volatilidade — ótimo pra trade rápido, péssimo pra guardar' },
+    'avalanche-2': { tier: 'speculative', why: 'Beta alto dentro de cripto — anda mais forte que BTC/ETH nos dois sentidos' },
+    sui:         { tier: 'speculative', why: 'Projeto novo e volátil — movimentos rápidos e amplos, ideal pra trade' },
+    pepe:        { tier: 'speculative', why: 'Meme coin extremamente volátil — puro trade especulativo, risco de perda rápida' },
   },
   stocks: {
     WEGE3: { tier: 'high',        why: 'Negócio excelente, cresce de forma consistente há décadas' },
@@ -707,6 +712,9 @@ const CONVICTION = {
     PETR4: { tier: 'speculative', why: 'Depende do petróleo e de política de preços — cíclico e sensível a governo' },
     MGLU3: { tier: 'speculative', why: 'Turnaround de alto risco — só se você já entende a tese a fundo' },
     PRIO3: { tier: 'speculative', why: 'Produtora pura de petróleo — feast or famine, sem colchão de outros negócios' },
+    RENT3: { tier: 'speculative', why: 'Muito sensível a juros e ciclo econômico — boa amplitude de movimento pra trade' },
+    B3SA3: { tier: 'speculative', why: 'A própria bolsa — anda com o volume do mercado, boa liquidez pra trade' },
+    SUZB3: { tier: 'speculative', why: 'Exportadora de celulose — sensível a câmbio e commodity, boa volatilidade' },
   }
 };
 
@@ -735,6 +743,7 @@ let state = {
   watchlist: { crypto: [], stocks: [] },
   positions: {},
   alerts: [],
+  dismissedCurated: { crypto: [], stocks: [] },
   prices: { crypto: {}, stocks: {} },
   opportunities: [],
   settings: {
@@ -764,6 +773,7 @@ function loadState() {
       state.positions = saved.positions || {};
       state.alerts = saved.alerts || [];
       state.settings = { ...state.settings, ...saved.settings };
+      state.dismissedCurated = saved.dismissedCurated || { crypto: [], stocks: [] };
     }
   } catch (e) {}
 }
@@ -774,9 +784,27 @@ function saveState() {
       watchlist: state.watchlist,
       positions: state.positions,
       alerts: state.alerts,
-      settings: state.settings
+      settings: state.settings,
+      dismissedCurated: state.dismissedCurated
     }));
   } catch (e) {}
+}
+
+// Adiciona à watchlist qualquer ativo novo que eu passei a curar, sem duplicar
+// e sem reviver algo que você já removeu de propósito.
+function syncCuratedAssets() {
+  const dismissed = state.dismissedCurated || { crypto: [], stocks: [] };
+  const haveCrypto = new Set(state.watchlist.crypto.map(c => c.id));
+  for (const id of Object.keys(CONVICTION.crypto)) {
+    if (haveCrypto.has(id) || dismissed.crypto.includes(id)) continue;
+    const meta = POPULAR_CRYPTOS.find(c => c.id === id);
+    if (meta) state.watchlist.crypto.push({ id: meta.id, symbol: meta.symbol, name: meta.name });
+  }
+  const haveStocks = new Set(state.watchlist.stocks);
+  for (const ticker of Object.keys(CONVICTION.stocks)) {
+    if (haveStocks.has(ticker) || dismissed.stocks.includes(ticker)) continue;
+    state.watchlist.stocks.push(ticker);
+  }
 }
 
 function toggleTheme() {
@@ -1740,8 +1768,13 @@ function addStock() {
 }
 
 function removeAsset(id, type) {
-  if (type === 'crypto') state.watchlist.crypto = state.watchlist.crypto.filter(c => c.id !== id);
-  else state.watchlist.stocks = state.watchlist.stocks.filter(t => t !== id);
+  if (type === 'crypto') {
+    state.watchlist.crypto = state.watchlist.crypto.filter(c => c.id !== id);
+    if (CONVICTION.crypto[id] && !state.dismissedCurated.crypto.includes(id)) state.dismissedCurated.crypto.push(id);
+  } else {
+    state.watchlist.stocks = state.watchlist.stocks.filter(t => t !== id);
+    if (CONVICTION.stocks[id] && !state.dismissedCurated.stocks.includes(id)) state.dismissedCurated.stocks.push(id);
+  }
   saveState();
   UI.renderCryptoCards();
   UI.renderStockCards();
@@ -1980,14 +2013,21 @@ document.getElementById('stock-input').addEventListener('keydown', e => {
   UI.renderStockCards();
   UI.renderAlerts();
 
-  if (!state.watchlist.crypto.length && !state.watchlist.stocks.length) {
-    const curatedCryptoIds = Object.keys(CONVICTION.crypto);
-    state.watchlist.crypto = POPULAR_CRYPTOS.filter(c => curatedCryptoIds.includes(c.id));
-    state.watchlist.stocks = Object.keys(CONVICTION.stocks);
+  const isFirstRun = !state.watchlist.crypto.length && !state.watchlist.stocks.length;
+  if (isFirstRun) {
     state.settings.dropThreshold = 2;
     state.settings.riseThreshold = 5;
-    saveState();
     loadSettings();
+  }
+  const cryptoCountBefore = state.watchlist.crypto.length;
+  const stockCountBefore = state.watchlist.stocks.length;
+  syncCuratedAssets(); // adiciona ativos que eu passei a curar depois, sem duplicar nem reviver o que você removeu
+  if (state.watchlist.crypto.length !== cryptoCountBefore || state.watchlist.stocks.length !== stockCountBefore) {
+    saveState();
+    UI.renderCryptoCards();
+    UI.renderStockCards();
+    UI.renderAlerts();
+    renderPopular();
   }
 
   if ('Notification' in window && Notification.permission === 'default') {
