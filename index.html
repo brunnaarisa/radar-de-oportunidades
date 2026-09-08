@@ -851,11 +851,23 @@ function timeAgo(d) {
   return Math.floor(diff/86400) + 'd atrás';
 }
 
+// Evita que uma API lenta/travada prenda o refresh pra sempre — corta em 12s e conta como erro,
+// pra próxima rodada (15s depois) tentar de novo em vez de ficar preso em "Atualizando...".
+async function fetchWithTimeout(url, ms = 12000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const API = {
   async fetchCryptoPrices(ids) {
     if (!ids.length) return {};
     const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=brl&ids=${ids.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=1h,24h,7d`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
     const data = await res.json();
     const result = {};
@@ -878,7 +890,7 @@ const API = {
   async fetchStockPrices(tickers) {
     if (!tickers.length || !state.settings.brapiToken) return {};
     const url = `https://brapi.dev/api/quote/${tickers.join(',')}?token=${state.settings.brapiToken}`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) throw new Error(`brapi ${res.status}`);
     const data = await res.json();
     const result = {};
@@ -899,7 +911,7 @@ const API = {
 
   async fetchCDI() {
     try {
-      const res = await fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.4389/dados/ultimos/1?formato=json');
+      const res = await fetchWithTimeout('https://api.bcb.gov.br/dados/serie/bcdata.sgs.4389/dados/ultimos/1?formato=json', 8000);
       if (!res.ok) return null;
       const data = await res.json();
       return data[0] ? parseFloat(data[0].valor) : null;
@@ -908,7 +920,7 @@ const API = {
 
   async fetchUSD() {
     try {
-      const res = await fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados/ultimos/2?formato=json');
+      const res = await fetchWithTimeout('https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados/ultimos/2?formato=json', 8000);
       if (!res.ok) return null;
       const data = await res.json();
       if (data.length >= 2) {
@@ -1614,68 +1626,78 @@ function showToast({ type, title, msg, duration }) {
   setTimeout(() => { if (toast.parentElement) toast.remove(); }, timeout);
 }
 
+let refreshInProgress = false;
+
 async function refreshData() {
+  // Com refresh a cada 15s, uma API lenta pode não terminar antes da próxima rodada.
+  // Sem essa trava, as chamadas se empilham e tudo fica mais lento ainda.
+  if (refreshInProgress) return;
+  refreshInProgress = true;
   const statusDot = document.getElementById('status-dot');
   const statusText = document.getElementById('status-text');
   statusDot.className = 'status-dot loading';
   statusText.textContent = 'Atualizando...';
   const errors = [];
-  const cryptoIds = new Set(state.watchlist.crypto.map(c => c.id));
-  cryptoIds.add('bitcoin');
-  cryptoIds.add('ethereum');
   try {
-    const prices = await API.fetchCryptoPrices([...cryptoIds]);
-    const prev = { ...state.prices.crypto };
-    state.prices.crypto = prices;
-    for (const id of Object.keys(prices)) {
-      if (prev[id] && prev[id].price !== prices[id].price) {
-        const card = document.getElementById(`card-${id}`);
-        if (card) {
-          const cls = prices[id].price > prev[id].price ? 'flash-green' : 'flash-red';
-          card.classList.add(cls);
-          setTimeout(() => card.classList.remove(cls), 500);
-        }
-      }
-    }
-  } catch (e) { errors.push('Cripto'); console.warn('Crypto fetch error:', e); }
-  if (state.watchlist.stocks.length && state.settings.brapiToken) {
+    const cryptoIds = new Set(state.watchlist.crypto.map(c => c.id));
+    cryptoIds.add('bitcoin');
+    cryptoIds.add('ethereum');
     try {
-      const prices = await API.fetchStockPrices(state.watchlist.stocks);
-      const prev = { ...state.prices.stocks };
-      state.prices.stocks = prices;
-      for (const t of Object.keys(prices)) {
-        if (prev[t] && prev[t].price !== prices[t].price) {
-          const card = document.getElementById(`card-${t}`);
+      const prices = await API.fetchCryptoPrices([...cryptoIds]);
+      const prev = { ...state.prices.crypto };
+      state.prices.crypto = prices;
+      for (const id of Object.keys(prices)) {
+        if (prev[id] && prev[id].price !== prices[id].price) {
+          const card = document.getElementById(`card-${id}`);
           if (card) {
-            const cls = prices[t].price > prev[t].price ? 'flash-green' : 'flash-red';
+            const cls = prices[id].price > prev[id].price ? 'flash-green' : 'flash-red';
             card.classList.add(cls);
             setTimeout(() => card.classList.remove(cls), 500);
           }
         }
       }
-    } catch (e) { errors.push('Ações'); console.warn('Stocks fetch error:', e); }
-  }
-  try {
-    const [cdi, usd] = await Promise.all([API.fetchCDI(), API.fetchUSD()]);
-    if (cdi != null) document.getElementById('tick-cdi').textContent = cdi.toFixed(2) + '% a.a.';
-    if (usd) {
-      document.getElementById('tick-usd').textContent = 'R$ ' + usd.value.toFixed(4);
-      const usdEl = document.getElementById('tick-usd-change');
-      usdEl.textContent = fmtPct(usd.change);
-      usdEl.className = 'ticker-change ' + (usd.change >= 0 ? 'change-up' : 'change-down');
+    } catch (e) { errors.push('Cripto'); console.warn('Crypto fetch error:', e); }
+    if (state.watchlist.stocks.length && state.settings.brapiToken) {
+      try {
+        const prices = await API.fetchStockPrices(state.watchlist.stocks);
+        const prev = { ...state.prices.stocks };
+        state.prices.stocks = prices;
+        for (const t of Object.keys(prices)) {
+          if (prev[t] && prev[t].price !== prices[t].price) {
+            const card = document.getElementById(`card-${t}`);
+            if (card) {
+              const cls = prices[t].price > prev[t].price ? 'flash-green' : 'flash-red';
+              card.classList.add(cls);
+              setTimeout(() => card.classList.remove(cls), 500);
+            }
+          }
+        }
+      } catch (e) { errors.push('Ações'); console.warn('Stocks fetch error:', e); }
     }
-  } catch (e) {}
-  UI.renderCryptoCards();
-  UI.renderStockCards();
-  UI.renderTicker();
-  detectOpportunities();
-  checkAlerts();
-  if (errors.length) {
-    statusDot.className = 'status-dot offline';
-    statusText.textContent = `Erro ao atualizar: ${errors.join(', ')}`;
-  } else {
-    statusDot.className = 'status-dot online';
-    statusText.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
+    try {
+      const [cdi, usd] = await Promise.all([API.fetchCDI(), API.fetchUSD()]);
+      if (cdi != null) document.getElementById('tick-cdi').textContent = cdi.toFixed(2) + '% a.a.';
+      if (usd) {
+        document.getElementById('tick-usd').textContent = 'R$ ' + usd.value.toFixed(4);
+        const usdEl = document.getElementById('tick-usd-change');
+        usdEl.textContent = fmtPct(usd.change);
+        usdEl.className = 'ticker-change ' + (usd.change >= 0 ? 'change-up' : 'change-down');
+      }
+    } catch (e) {}
+    UI.renderCryptoCards();
+    UI.renderStockCards();
+    UI.renderTicker();
+    detectOpportunities();
+    checkAlerts();
+    if (errors.length) {
+      statusDot.className = 'status-dot offline';
+      statusText.textContent = `Erro ao atualizar: ${errors.join(', ')} — tentando de novo em instantes`;
+    } else {
+      statusDot.className = 'status-dot online';
+      statusText.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
+    }
+  } finally {
+    refreshInProgress = false;
   }
 }
 
