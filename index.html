@@ -305,6 +305,34 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 ::-webkit-scrollbar-thumb:hover{background:var(--text-muted)}
 
+/* ===== SPARKLINE ===== */
+.sparkline-wrap{margin:6px 0 2px}
+.sparkline-wrap svg{display:block;width:100%;height:32px}
+
+/* ===== FEAR & GREED ===== */
+.fg-bar{height:6px;border-radius:3px;background:linear-gradient(90deg,#dc4545 0%,#c89200 25%,#aab100 50%,#16a362 75%,#0088bb 100%);position:relative;margin-top:4px}
+.fg-dot{width:10px;height:10px;border-radius:50%;border:2px solid var(--bg-raised);position:absolute;top:-2px;transition:left .5s ease}
+.fg-card{background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:14px}
+.fg-card h3{font-size:.9rem;margin-bottom:8px;font-weight:600}
+.fg-score{font-family:var(--mono);font-size:1.6rem;font-weight:700;line-height:1}
+.fg-label{font-size:.78rem;font-weight:600;margin-top:2px}
+.fg-hint{font-size:.72rem;color:var(--text-muted);margin-top:6px;line-height:1.4}
+
+/* ===== SHARE BUTTON ===== */
+.opp-share{border:none;background:none;cursor:pointer;font-size:.85rem;padding:4px 8px;border-radius:var(--radius-sm);color:var(--text-muted);transition:var(--transition)}
+.opp-share:hover{background:var(--accent-glow);color:var(--accent)}
+
+/* ===== ALERT HISTORY ===== */
+.history-item{display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);font-size:.78rem;align-items:flex-start}
+.history-item:last-child{border-bottom:none}
+.history-icon{font-size:1rem;flex-shrink:0}
+.history-text{flex:1;min-width:0}
+.history-title{font-weight:500;color:var(--text-primary);margin-bottom:2px}
+.history-desc{color:var(--text-secondary);font-size:.72rem;line-height:1.4}
+.history-time{color:var(--text-muted);font-size:.68rem;flex-shrink:0;white-space:nowrap}
+.history-clear{font-size:.72rem;padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-raised);cursor:pointer;color:var(--text-muted)}
+.history-clear:hover{border-color:var(--loss);color:var(--loss)}
+
 /* ===== SKELETON ===== */
 .skeleton{background:linear-gradient(90deg,var(--bg-inset) 25%,var(--bg-raised-hover) 50%,var(--bg-inset) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:3px}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
@@ -340,8 +368,8 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
     <span class="disclaimer-icon">⚠️</span>
     <div>
       <strong>Isso não é recomendação de investimento — é opinião pessoal.</strong>
-      <strong>Modo curto prazo:</strong> atualiza a cada 15s, sinais mais sensíveis (a partir de 2% de queda / 5% de alta) e cada alerta de compra já traz alvo e stop sugeridos pra operação rápida. Os ícones <strong>🎯 = eu seguraria por anos</strong>, <strong>🛰️ = satélite</strong>, <strong>⚠️ = especulativo</strong> são minha opinião sobre a <em>qualidade do negócio</em>, não sobre a entrada agora — inclusive ativos ⚠️ tendem a gerar mais sinais de curto prazo por serem mais voláteis. A % de probabilidade é um <em>score técnico</em> — <strong>não é previsão do futuro</strong>. Toda decisão é sua, e operação de curto prazo tem risco real de perda rápida.
-      Ative as notificações: alertas de compra em ativos 🎯/🛰️ chegam sempre; em ⚠️ especulativos só quando o sinal é muito forte.
+      <strong>Modo curto prazo:</strong> atualiza a cada 15s, sinais mais sensíveis (a partir de 2% de queda / 5% de alta) e cada alerta de compra já traz alvo e stop sugeridos pra operação rápida. Os ícones <strong>🎯 = ativo sólido</strong>, <strong>🛰️ = satélite</strong>, <strong>⚠️ = arriscado</strong> são minha opinião sobre a <em>qualidade do negócio</em>, não sobre a entrada agora — inclusive ativos ⚠️ tendem a gerar mais sinais de curto prazo por serem mais voláteis. A % de probabilidade combina <em>score técnico</em> (RSI, momentum, volume, preço vs mínima/ATH) + <em>sentimento do mercado</em> (Índice de Medo e Ganância) — <strong>não é previsão do futuro</strong>. Toda decisão é sua, e operação de curto prazo tem risco real de perda rápida.
+      Ative as notificações: alertas de compra em ativos 🎯/🛰️ chegam sempre; em ⚠️ arriscados só quando o sinal é muito forte.
     </div>
     <button class="disclaimer-close" onclick="dismissDisclaimer()">✕</button>
   </div>
@@ -367,6 +395,11 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
       <span class="ticker-label">CDI</span>
       <span class="ticker-value" id="tick-cdi">---</span>
     </div>
+    <div class="ticker-item" id="tick-fg-wrap" hidden>
+      <span class="ticker-label">😱 Medo/Ganância</span>
+      <span class="ticker-value" id="tick-fg">--</span>
+      <span class="ticker-change" id="tick-fg-label">--</span>
+    </div>
     <div class="ticker-item">
       <span class="ticker-label">Atualizado</span>
       <span class="ticker-value" id="tick-time">--:--</span>
@@ -378,6 +411,7 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
     <button class="tab" data-tab="dashboard" role="tab">📊 Painel</button>
     <button class="tab active" data-tab="opportunities" role="tab">🔔 Oportunidades <span class="badge" id="opp-badge" hidden>0</span></button>
     <button class="tab" data-tab="alerts" role="tab">⏰ Alertas <span class="badge" id="alert-badge" hidden>0</span></button>
+    <button class="tab" data-tab="history" role="tab">📋 Histórico</button>
     <button class="tab" data-tab="settings" role="tab">⚙️ Config</button>
   </nav>
 
@@ -409,6 +443,22 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
 
   <!-- PANEL: OPPORTUNITIES -->
   <section class="panel active" id="panel-opportunities">
+    <!-- Fear & Greed Index -->
+    <div class="fg-card" id="fg-card" hidden>
+      <h3>😱 Índice de Medo e Ganância do Mercado Cripto</h3>
+      <div style="display:flex;align-items:flex-end;gap:14px">
+        <div>
+          <div class="fg-score" id="fg-score">--</div>
+          <div class="fg-label" id="fg-label-text">--</div>
+        </div>
+        <div style="flex:1">
+          <div class="fg-bar"><div class="fg-dot" id="fg-dot" style="left:50%"></div></div>
+          <div style="display:flex;justify-content:space-between;font-size:.62rem;color:var(--text-muted);margin-top:4px"><span>Medo Extremo</span><span>Ganância Extrema</span></div>
+        </div>
+      </div>
+      <div class="fg-hint" id="fg-hint"></div>
+    </div>
+
     <div class="cards-header">
       <h2>🔔 Oportunidades Detectadas</h2>
       <span style="font-size:.78rem;color:var(--text-muted)">Modo curto prazo · alvo/stop em cada sinal · atualiza a cada 15s</span>
@@ -459,6 +509,21 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
         <div class="emoji">⏰</div>
         <p>Nenhum alerta criado</p>
         <p style="font-size:.78rem">Crie alertas para ser notificado quando o preço atingir seu alvo</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- PANEL: HISTORY -->
+  <section class="panel" id="panel-history">
+    <div class="cards-header">
+      <h2>📋 Histórico de Alertas</h2>
+      <button class="history-clear" onclick="clearHistory()">🗑️ Limpar</button>
+    </div>
+    <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden" id="history-list">
+      <div class="empty-state" id="history-empty">
+        <div class="emoji">📋</div>
+        <p>Nenhum alerta registrado ainda</p>
+        <p style="font-size:.78rem">Os alertas disparados serão salvos aqui para você acompanhar o histórico</p>
       </div>
     </div>
   </section>
@@ -792,9 +857,11 @@ let state = {
   watchlist: { crypto: [], stocks: [] },
   positions: {},
   alerts: [],
+  alertHistory: [],
   dismissedCurated: { crypto: [], stocks: [] },
   prices: { crypto: {}, stocks: {} },
   opportunities: [],
+  fearGreed: null,
   settings: {
     refreshInterval: 15,
     notifications: false,
@@ -824,6 +891,7 @@ function loadState() {
       }
       state.positions = saved.positions || {};
       state.alerts = Array.isArray(saved.alerts) ? saved.alerts : [];
+      state.alertHistory = Array.isArray(saved.alertHistory) ? saved.alertHistory : [];
       state.settings = { ...state.settings, ...(saved.settings || {}) };
       state.dismissedCurated = {
         crypto: Array.isArray(saved.dismissedCurated?.crypto) ? saved.dismissedCurated.crypto : [],
@@ -842,6 +910,7 @@ function saveState() {
       watchlist: state.watchlist,
       positions: state.positions,
       alerts: state.alerts,
+      alertHistory: state.alertHistory.slice(-100),
       settings: state.settings,
       dismissedCurated: state.dismissedCurated
     }));
@@ -937,7 +1006,7 @@ function debugLog(msg) {
 const API = {
   async fetchCryptoPrices(ids) {
     if (!ids.length) return {};
-    const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=brl&ids=${ids.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=1h,24h,7d`;
+    const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=brl&ids=${ids.join(',')}&order=market_cap_desc&sparkline=true&price_change_percentage=1h,24h,7d`;
     debugLog(`Cripto: buscando ${ids.length} moedas...`);
     const data = await fetchJSON(url);
     debugLog(`Cripto: recebeu ${data.length} resultados`);
@@ -952,6 +1021,7 @@ const API = {
         marketCap: coin.market_cap, volume24h: coin.total_volume,
         ath: coin.ath, athChange: coin.ath_change_percentage,
         high24h: coin.high_24h, low24h: coin.low_24h,
+        sparkline: coin.sparkline_in_7d?.price || [],
         lastUpdated: coin.last_updated
       };
     }
@@ -1000,6 +1070,17 @@ const API = {
     } catch { return null; }
   },
 
+  async fetchFearGreed() {
+    try {
+      const data = await fetchJSON('https://api.alternative.me/fng/?limit=1', 8000);
+      if (data && data.data && data.data[0]) {
+        const fg = data.data[0];
+        return { value: parseInt(fg.value), label: fg.value_classification, timestamp: fg.timestamp };
+      }
+      return null;
+    } catch { return null; }
+  },
+
   async searchCryptos(query) {
     if (!query || query.length < 2) return [];
     try {
@@ -1010,6 +1091,169 @@ const API = {
     } catch { return []; }
   }
 };
+
+/* ===== SPARKLINE RENDERER ===== */
+function renderSparkline(prices, isUp) {
+  if (!prices || prices.length < 2) return '';
+  // Sample down to ~50 points for performance
+  const step = Math.max(1, Math.floor(prices.length / 50));
+  const sampled = [];
+  for (let i = 0; i < prices.length; i += step) sampled.push(prices[i]);
+  if (sampled[sampled.length - 1] !== prices[prices.length - 1]) sampled.push(prices[prices.length - 1]);
+
+  const min = Math.min(...sampled);
+  const max = Math.max(...sampled);
+  const range = max - min || 1;
+  const w = 200, h = 32, pad = 2;
+
+  const points = sampled.map((v, i) => {
+    const x = (i / (sampled.length - 1)) * w;
+    const y = pad + (1 - (v - min) / range) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+
+  const color = isUp ? 'var(--gain)' : 'var(--loss)';
+  const fillColor = isUp ? 'var(--gain-bg)' : 'var(--loss-bg)';
+  const areaPoints = points.join(' ') + ` ${w},${h} 0,${h}`;
+
+  return `<div class="sparkline-wrap"><svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <polygon points="${areaPoints}" fill="${fillColor}" />
+    <polyline points="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" />
+  </svg></div>`;
+}
+
+/* ===== FEAR & GREED RENDERING ===== */
+function renderFearGreed() {
+  const fg = state.fearGreed;
+  const card = document.getElementById('fg-card');
+  if (!fg) { card.hidden = true; return; }
+  card.hidden = false;
+  const val = fg.value;
+  document.getElementById('fg-score').textContent = val;
+  const dot = document.getElementById('fg-dot');
+  dot.style.left = `calc(${val}% - 5px)`;
+
+  let label, color, hint;
+  if (val <= 20) {
+    label = 'Medo Extremo'; color = 'var(--loss)';
+    hint = '💡 Mercado em pânico — historicamente é quando surgem as melhores oportunidades de compra. "Compre quando há sangue nas ruas."';
+  } else if (val <= 40) {
+    label = 'Medo'; color = '#e07030';
+    hint = '💡 Investidores com medo — bom momento para ir às compras com cautela. Ativos sólidos podem estar baratos.';
+  } else if (val <= 60) {
+    label = 'Neutro'; color = 'var(--warn)';
+    hint = '💡 Mercado indeciso — sem viés claro. Siga os sinais técnicos dos ativos individuais.';
+  } else if (val <= 80) {
+    label = 'Ganância'; color = 'var(--gain)';
+    hint = '💡 Mercado eufórico — cuidado ao comprar. Pode ser hora de realizar lucros parciais.';
+  } else {
+    label = 'Ganância Extrema'; color = 'var(--accent)';
+    hint = '⚠️ Euforia máxima — historicamente precede correções. Evite compras novas e proteja seus ganhos.';
+  }
+  const labelEl = document.getElementById('fg-label-text');
+  labelEl.textContent = label;
+  labelEl.style.color = color;
+  document.getElementById('fg-score').style.color = color;
+  dot.style.background = color;
+  document.getElementById('fg-hint').textContent = hint;
+
+  // Ticker
+  document.getElementById('tick-fg-wrap').hidden = false;
+  document.getElementById('tick-fg').textContent = val + '/100';
+  const fgTickLabel = document.getElementById('tick-fg-label');
+  fgTickLabel.textContent = label;
+  fgTickLabel.style.color = color;
+}
+
+/* ===== WHATSAPP SHARE ===== */
+function shareOpp(index) {
+  const opp = state.opportunities[index];
+  if (!opp) return;
+  const text = `${opp.title}\n${opp.desc}\n\n📡 Radar de Oportunidades`;
+  const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.open(url, '_blank');
+}
+
+/* ===== ALERT HISTORY ===== */
+function addToHistory(opp) {
+  state.alertHistory.unshift({
+    title: opp.title,
+    desc: opp.desc,
+    type: opp.type,
+    probability: opp.probability,
+    conviction: opp.conviction,
+    timestamp: new Date().toISOString()
+  });
+  if (state.alertHistory.length > 100) state.alertHistory.length = 100;
+  saveState();
+}
+
+function renderHistory() {
+  const list = document.getElementById('history-list');
+  const empty = document.getElementById('history-empty');
+  if (!state.alertHistory.length) {
+    list.innerHTML = '';
+    list.appendChild(empty);
+    empty.hidden = false;
+    return;
+  }
+  empty.hidden = true;
+  let html = '';
+  for (const h of state.alertHistory) {
+    const icon = h.type === 'buy' ? '🟢' : h.type === 'sell' ? '🔴' : 'ℹ️';
+    const dt = new Date(h.timestamp);
+    const dateStr = dt.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' });
+    const timeStr = dt.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+    html += `<div class="history-item">
+      <span class="history-icon">${icon}</span>
+      <div class="history-text">
+        <div class="history-title">${h.title}</div>
+        <div class="history-desc">${h.desc}</div>
+      </div>
+      <span class="history-time">${dateStr} ${timeStr}</span>
+    </div>`;
+  }
+  list.innerHTML = html;
+}
+
+function clearHistory() {
+  if (!confirm('Limpar todo o histórico de alertas?')) return;
+  state.alertHistory = [];
+  saveState();
+  renderHistory();
+  showToast({ type: 'info', title: 'Histórico limpo', msg: 'Todos os alertas antigos foram removidos.' });
+}
+
+/* ===== RSI-LIKE CALCULATION FROM SPARKLINE ===== */
+function calcRSI(prices, period) {
+  if (!prices || prices.length < period + 1) return null;
+  // Use last N+1 prices
+  const data = prices.slice(-(period + 1));
+  let gains = 0, losses = 0;
+  for (let i = 1; i < data.length; i++) {
+    const diff = data[i] - data[i - 1];
+    if (diff > 0) gains += diff;
+    else losses -= diff;
+  }
+  if (losses === 0) return 100;
+  const rs = (gains / period) / (losses / period);
+  return 100 - (100 / (1 + rs));
+}
+
+/* ===== MOMENTUM: check if recent trend is accelerating ===== */
+function calcMomentum(prices) {
+  if (!prices || prices.length < 10) return 0;
+  // Compare last 10% of data vs previous 10%
+  const len = prices.length;
+  const recentStart = Math.floor(len * 0.9);
+  const midStart = Math.floor(len * 0.8);
+  const recent = prices.slice(recentStart);
+  const mid = prices.slice(midStart, recentStart);
+  if (!recent.length || !mid.length) return 0;
+  const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+  const midAvg = mid.reduce((a, b) => a + b, 0) / mid.length;
+  return ((recentAvg - midAvg) / midAvg) * 100;
+}
 
 const UI = {
   renderCryptoCards() {
@@ -1077,6 +1321,7 @@ const UI = {
               ${p.ath ? `<span class="card-stat">ATH: <b>${fmtPct(p.athChange)}</b></span>` : ''}
             ` : '<span class="skeleton" style="width:70px;height:14px;display:inline-block"></span>'}
           </div>
+          ${p && p.sparkline && p.sparkline.length > 2 ? renderSparkline(p.sparkline, (p.change7d || 0) >= 0) : ''}
           ${pnlHtml}
         </div>`;
     }
@@ -1194,6 +1439,7 @@ const UI = {
       const probLabel = prob >= 75 ? 'COMPRA AGORA' : prob >= 60 ? 'Bom momento' : prob >= 45 ? 'Atenção' : 'Só observando';
       const isConvictionBuy = opp.type === 'buy' && (opp.conviction === 'high' || opp.conviction === 'satellite');
       const convictionStyle = isConvictionBuy ? 'border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-glow)' : '';
+      const idx = state.opportunities.indexOf(opp);
       html += `
         <div class="opp-item" style="${convictionStyle}">
           <div class="opp-dot ${dotClass}"></div>
@@ -1205,7 +1451,10 @@ const UI = {
             <div class="opp-prob ${probClass}">${prob}%</div>
             <div class="opp-prob-bar"><div class="opp-prob-fill ${probClass}" style="width:${prob}%"></div></div>
             <div class="opp-label">${probLabel}</div>
-            <div class="opp-time">${opp.time || 'agora'}</div>
+            <div style="display:flex;gap:4px;align-items:center">
+              <button class="opp-share" onclick="shareOpp(${idx})" title="Compartilhar no WhatsApp">📲</button>
+              <span class="opp-time">${opp.time || 'agora'}</span>
+            </div>
           </div>
         </div>`;
     }
@@ -1489,6 +1738,7 @@ function detectOpportunities() {
 
   for (const opp of newSignals) {
     notifiedOpps.add(opp.key);
+    addToHistory(opp);
     showToast({ type: opp.type, title: opp.title, msg: opp.desc });
 
     // Notificação push: venda/stop/lucro sempre avisam (são sobre SUA posição).
@@ -1552,6 +1802,29 @@ function calcBuyScore(p, dropThresh, pos) {
     if (volRatio > 0.15) { score += 10; reasons.push(`Volume explosivo (${(volRatio*100).toFixed(1)}% do market cap)`); }
     else if (volRatio > 0.08) { score += 5; reasons.push('Volume acima do normal'); }
   }
+  // RSI do sparkline de 7 dias (14 períodos)
+  if (p.sparkline && p.sparkline.length > 15) {
+    const rsi = calcRSI(p.sparkline, 14);
+    if (rsi !== null) {
+      if (rsi < 25) { score += 15; reasons.push(`RSI sobrevendido (${rsi.toFixed(0)}) — forte sinal de reversão`); }
+      else if (rsi < 35) { score += 10; reasons.push(`RSI baixo (${rsi.toFixed(0)}) — pode reverter`); }
+      else if (rsi > 75) { score -= 8; reasons.push(`⚠️ RSI sobrecomprado (${rsi.toFixed(0)}) — arriscado comprar agora`); }
+    }
+  }
+  // Momentum do sparkline
+  if (p.sparkline && p.sparkline.length > 20) {
+    const mom = calcMomentum(p.sparkline);
+    if (mom < -3) { score += 6; reasons.push('Momentum negativo acelerando — queda pode ser oportunidade'); }
+    else if (mom > 3 && p.change24h < -dropThresh) { score += 5; reasons.push('Momentum virando — pode estar revertendo'); }
+  }
+  // Fear & Greed Index
+  if (state.fearGreed) {
+    const fg = state.fearGreed.value;
+    if (fg <= 20) { score += 12; reasons.push(`Mercado em pânico (Medo: ${fg}/100) — hora de comprar?`); }
+    else if (fg <= 35) { score += 7; reasons.push(`Mercado com medo (${fg}/100) — bom pra compras`); }
+    else if (fg >= 80) { score -= 10; reasons.push(`⚠️ Mercado em euforia (${fg}/100) — cuidado ao comprar`); }
+    else if (fg >= 65) { score -= 5; reasons.push(`Ganância alta (${fg}/100) — cautela`); }
+  }
   if (pos && pos.buyPrice && p.price) {
     const pnlPct = ((p.price - pos.buyPrice) / pos.buyPrice) * 100;
     if (pnlPct < -20) { score += 12; reasons.push(`${Math.abs(pnlPct).toFixed(0)}% abaixo da sua compra — média pra baixo?`); }
@@ -1589,6 +1862,22 @@ function calcSellScore(p, riseThresh, pos) {
   if (p.change7d != null) {
     if (p.change7d > 30) { score += 10; reasons.push(`Semana absurda: +${p.change7d.toFixed(1)}% — bolha?`); }
     else if (p.change7d > 15) { score += 6; reasons.push(`Forte alta semanal: +${p.change7d.toFixed(1)}%`); }
+  }
+  // RSI do sparkline de 7 dias
+  if (p.sparkline && p.sparkline.length > 15) {
+    const rsi = calcRSI(p.sparkline, 14);
+    if (rsi !== null) {
+      if (rsi > 80) { score += 15; reasons.push(`RSI sobrecomprado (${rsi.toFixed(0)}) — forte sinal de venda`); }
+      else if (rsi > 70) { score += 8; reasons.push(`RSI alto (${rsi.toFixed(0)}) — pode corrigir`); }
+      else if (rsi < 30) { score -= 8; reasons.push(`⚠️ RSI sobrevendido (${rsi.toFixed(0)}) — arriscado vender agora`); }
+    }
+  }
+  // Fear & Greed: euforia reforça venda
+  if (state.fearGreed) {
+    const fg = state.fearGreed.value;
+    if (fg >= 80) { score += 10; reasons.push(`Mercado em euforia (${fg}/100) — bom pra realizar`); }
+    else if (fg >= 65) { score += 5; reasons.push(`Ganância (${fg}/100) — considere lucros`); }
+    else if (fg <= 20) { score -= 8; reasons.push(`⚠️ Mercado em pânico (${fg}/100) — vender agora pode ser caro`); }
   }
   if (pos && pos.buyPrice && p.price) {
     const pnlPct = ((p.price - pos.buyPrice) / pos.buyPrice) * 100;
@@ -1795,7 +2084,7 @@ async function refreshData() {
       }
     }
     try {
-      const [cdi, usd] = await Promise.all([API.fetchCDI(), API.fetchUSD()]);
+      const [cdi, usd, fg] = await Promise.all([API.fetchCDI(), API.fetchUSD(), API.fetchFearGreed()]);
       if (cdi != null) document.getElementById('tick-cdi').textContent = cdi.toFixed(2) + '% a.a.';
       if (usd) {
         document.getElementById('tick-usd').textContent = 'R$ ' + usd.value.toFixed(4);
@@ -1803,13 +2092,16 @@ async function refreshData() {
         usdEl.textContent = fmtPct(usd.change);
         usdEl.className = 'ticker-change ' + (usd.change >= 0 ? 'change-up' : 'change-down');
       }
-      debugLog('BCB (CDI/USD): ok');
-    } catch (e) { debugLog(`BCB ERRO: ${e.message}`); }
+      if (fg) { state.fearGreed = fg; debugLog(`Fear&Greed: ${fg.value} (${fg.label})`); }
+      debugLog('BCB/F&G: ok');
+    } catch (e) { debugLog(`BCB/F&G ERRO: ${e.message}`); }
     try { UI.renderCryptoCards(); } catch (e) { debugLog(`render crypto ERRO: ${e.message}`); }
     try { UI.renderStockCards(); } catch (e) { debugLog(`render stocks ERRO: ${e.message}`); }
     try { UI.renderTicker(); } catch (e) { debugLog(`render ticker ERRO: ${e.message}`); }
+    try { renderFearGreed(); } catch (e) { debugLog(`render F&G ERRO: ${e.message}`); }
     try { detectOpportunities(); } catch (e) { debugLog(`detectOpps ERRO: ${e.message}`); }
     try { checkAlerts(); } catch (e) { debugLog(`checkAlerts ERRO: ${e.message}`); }
+    try { renderHistory(); } catch (e) { debugLog(`render history ERRO: ${e.message}`); }
     if (errors.length) {
       statusDot.className = 'status-dot offline';
       statusText.textContent = `Erro: ${errors.join(', ')} — tentando de novo`;
@@ -2205,6 +2497,7 @@ window.addEventListener('error', e => {
   UI.renderCryptoCards();
   UI.renderStockCards();
   UI.renderAlerts();
+  renderHistory();
   debugLog(`init: watchlist ${state.watchlist.crypto.length} cryptos, ${state.watchlist.stocks.length} ações`);
 
   const isFirstRun = !state.watchlist.crypto.length && !state.watchlist.stocks.length;
