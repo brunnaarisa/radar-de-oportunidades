@@ -1157,7 +1157,7 @@ const UI = {
       const dotClass = opp.type === 'buy' ? 'buy' : opp.type === 'sell' ? 'sell' : opp.type === 'info' ? 'info' : 'neutral';
       const prob = opp.probability || 0;
       const probClass = prob >= 70 ? 'high' : prob >= 45 ? 'medium' : 'low';
-      const probLabel = prob >= 75 ? 'Excelente' : prob >= 60 ? 'Bom' : prob >= 45 ? 'Razoável' : 'Fraco';
+      const probLabel = prob >= 75 ? 'COMPRA AGORA' : prob >= 60 ? 'Bom momento' : prob >= 45 ? 'Atenção' : 'Só observando';
       const isConvictionBuy = opp.type === 'buy' && (opp.conviction === 'high' || opp.conviction === 'satellite');
       const convictionStyle = isConvictionBuy ? 'border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-glow)' : '';
       html += `
@@ -1247,15 +1247,35 @@ function detectOpportunities() {
     const buyScore = calcBuyScore(p, dropThresh, pos);
     if (buyScore.total > 0) {
       const prob = buyScore.total;
-      const urgency = isConviction ? '🎯 EU COMPRARIA' : (prob >= 70 ? '🚨 URGENTE!' : prob >= 55 ? '🟢' : '🔵');
-      const tierNote = tier === 'speculative' ? ' — especulativo, não é minha convicção' : tier === 'satellite' ? ' — satélite, posição pequena' : '';
       const targets = suggestTargets('crypto');
       const key = oppKey('buy', coin.id, 'score');
+      // Combina convicção + timing pra dar uma orientação clara
+      let title, notif;
+      if (isConviction && prob >= 65) {
+        title = `🚨 COMPRA AGORA: ${sym} — ativo de convicção + timing forte (${prob}%)`;
+        notif = `🚨 COMPRA ${sym} ${fmtBRL(p.price)} — confio no ativo E o momento tá bom! Alvo +${targets.target}`;
+      } else if (isConviction && prob >= 45) {
+        title = `🎯 ${sym} ficando interessante — ativo de convicção, timing razoável (${prob}%)`;
+        notif = `🎯 ${sym} ${fmtBRL(p.price)} — ativo bom, momento se formando (${prob}%)`;
+      } else if (isConviction) {
+        title = `👀 ${sym} no radar — ativo de convicção, mas timing fraco (${prob}%)`;
+        notif = `👀 ${sym} ${fmtBRL(p.price)} — gosto do ativo, mas não é hora ainda (${prob}%)`;
+      } else if (prob >= 70) {
+        title = `🚨 SINAL FORTE de trade: ${sym} (${prob}%) — especulativo`;
+        notif = `🚨 Trade ${sym} ${fmtBRL(p.price)} — sinal forte (${prob}%)! Alvo +${targets.target}, stop -${targets.stop}`;
+      } else if (prob >= 45) {
+        title = `🟢 Sinal de trade: ${sym} (${prob}%) — especulativo`;
+        notif = `🟢 Trade ${sym} ${fmtBRL(p.price)} — sinal razoável (${prob}%)`;
+      } else {
+        title = `👀 ${sym} no radar (${prob}%) — especulativo, só observando`;
+        notif = `👀 ${sym} ${fmtBRL(p.price)} — movimento fraco (${prob}%), só acompanhar`;
+      }
+      if (tier === 'satellite') title += ' · posição pequena';
       const opp = {
         key, type: 'buy', probability: prob, conviction: tier,
-        title: `${urgency}: ${sym} — ${prob}% de confiança${tierNote}`,
-        desc: `${fmtBRL(p.price)} · ${buyScore.reasons.join(' · ')} · 🎯 Curto prazo: alvo +${targets.target} | stop -${targets.stop}`,
-        notification: `${urgency} ${sym} ${fmtBRL(p.price)} — ${prob}% de chance de boa compra! Alvo +${targets.target}, stop -${targets.stop}`,
+        title,
+        desc: `${fmtBRL(p.price)} · ${buyScore.reasons.join(' · ')} · Alvo +${targets.target} | stop -${targets.stop}`,
+        notification: notif,
         time: 'agora', priority: prob + (isConviction ? 10 : 0)
       };
       opps.push(opp);
@@ -1265,14 +1285,21 @@ function detectOpportunities() {
     const sellScore = calcSellScore(p, riseThresh, pos);
     if (sellScore.total > 0) {
       const prob = sellScore.total;
-      const urgency = prob >= 70 ? '🚨 URGENTE!' : prob >= 55 ? '🔴' : '🟡';
-      const holdNote = tier === 'high' ? ' — sinal técnico de curto prazo; não muda minha tese de segurar' : '';
       const key = oppKey('sell', coin.id, 'score');
+      let sellTitle;
+      if (prob >= 70) {
+        sellTitle = `🚨 VENDA AGORA: ${sym} — sinal forte (${prob}%)`;
+      } else if (prob >= 45) {
+        sellTitle = `🔴 ${sym} esticado — considere vender (${prob}%)`;
+      } else {
+        sellTitle = `🟡 ${sym} subindo — fique atento (${prob}%)`;
+      }
+      if (tier === 'high') sellTitle += ' · p/ quem faz trade; quem segura, ignora';
       const opp = {
         key, type: 'sell', probability: prob, conviction: tier,
-        title: `${urgency} Cenário de VENDA para ${sym} — ${prob}% de confiança${holdNote}`,
+        title: sellTitle,
         desc: `${fmtBRL(p.price)} · ${sellScore.reasons.join(' · ')}`,
-        notification: `${urgency} ${sym} ${fmtBRL(p.price)} — ${prob}% de chance de boa venda! ${sellScore.reasons[0]}`,
+        notification: `${prob >= 70 ? '🚨' : '🔴'} ${sym} ${fmtBRL(p.price)} — sinal de venda (${prob}%) ${sellScore.reasons[0]}`,
         time: 'agora', priority: prob
       };
       opps.push(opp);
@@ -1334,15 +1361,33 @@ function detectOpportunities() {
     const buyScore = calcStockBuyScore(p, dropThresh, pos);
     if (buyScore.total > 0) {
       const prob = buyScore.total;
-      const urgency = isConviction ? '🎯 EU COMPRARIA' : (prob >= 70 ? '🚨 URGENTE!' : prob >= 55 ? '🟢' : '🔵');
-      const tierNote = tier === 'speculative' ? ' — especulativo, não é minha convicção' : '';
       const targets = suggestTargets('stock');
       const key = oppKey('buy', ticker, 'score');
+      let title, notif;
+      if (isConviction && prob >= 65) {
+        title = `🚨 COMPRA AGORA: ${ticker} — ativo de convicção + timing forte (${prob}%)`;
+        notif = `🚨 COMPRA ${ticker} ${fmtBRL(p.price)} — confio no ativo E o momento tá bom! Alvo +${targets.target}`;
+      } else if (isConviction && prob >= 45) {
+        title = `🎯 ${ticker} ficando interessante — ativo de convicção, timing razoável (${prob}%)`;
+        notif = `🎯 ${ticker} ${fmtBRL(p.price)} — ativo bom, momento se formando (${prob}%)`;
+      } else if (isConviction) {
+        title = `👀 ${ticker} no radar — ativo de convicção, mas timing fraco (${prob}%)`;
+        notif = `👀 ${ticker} ${fmtBRL(p.price)} — gosto do ativo, mas não é hora ainda (${prob}%)`;
+      } else if (prob >= 70) {
+        title = `🚨 SINAL FORTE de trade: ${ticker} (${prob}%) — especulativo`;
+        notif = `🚨 Trade ${ticker} ${fmtBRL(p.price)} — sinal forte (${prob}%)! Alvo +${targets.target}, stop -${targets.stop}`;
+      } else if (prob >= 45) {
+        title = `🟢 Sinal de trade: ${ticker} (${prob}%) — especulativo`;
+        notif = `🟢 Trade ${ticker} ${fmtBRL(p.price)} — sinal razoável (${prob}%)`;
+      } else {
+        title = `👀 ${ticker} no radar (${prob}%) — especulativo, só observando`;
+        notif = `👀 ${ticker} ${fmtBRL(p.price)} — movimento fraco (${prob}%), só acompanhar`;
+      }
       const opp = {
         key, type: 'buy', probability: prob, conviction: tier,
-        title: `${urgency}: ${ticker} — ${prob}% de confiança${tierNote}`,
-        desc: `${p.name} a ${fmtBRL(p.price)} · ${buyScore.reasons.join(' · ')} · 🎯 Curto prazo: alvo +${targets.target} | stop -${targets.stop}`,
-        notification: `${urgency} ${ticker} ${fmtBRL(p.price)} — ${prob}% de chance de boa compra! Alvo +${targets.target}, stop -${targets.stop}`,
+        title,
+        desc: `${p.name} a ${fmtBRL(p.price)} · ${buyScore.reasons.join(' · ')} · Alvo +${targets.target} | stop -${targets.stop}`,
+        notification: notif,
         time: 'agora', priority: prob + (isConviction ? 10 : 0)
       };
       opps.push(opp);
@@ -1352,14 +1397,21 @@ function detectOpportunities() {
     const sellScore = calcStockSellScore(p, riseThresh, pos);
     if (sellScore.total > 0) {
       const prob = sellScore.total;
-      const urgency = prob >= 70 ? '🚨 URGENTE!' : prob >= 55 ? '🔴' : '🟡';
-      const holdNote = tier === 'high' ? ' — sinal técnico de curto prazo; não muda minha tese de segurar' : '';
       const key = oppKey('sell', ticker, 'score');
+      let sellTitle;
+      if (prob >= 70) {
+        sellTitle = `🚨 VENDA AGORA: ${ticker} — sinal forte (${prob}%)`;
+      } else if (prob >= 45) {
+        sellTitle = `🔴 ${ticker} esticado — considere vender (${prob}%)`;
+      } else {
+        sellTitle = `🟡 ${ticker} subindo — fique atento (${prob}%)`;
+      }
+      if (tier === 'high') sellTitle += ' · p/ quem faz trade; quem segura, ignora';
       const opp = {
         key, type: 'sell', probability: prob, conviction: tier,
-        title: `${urgency} Cenário de VENDA para ${ticker} — ${prob}% de confiança${holdNote}`,
+        title: sellTitle,
         desc: `${p.name} a ${fmtBRL(p.price)} · ${sellScore.reasons.join(' · ')}`,
-        notification: `${urgency} ${ticker} ${fmtBRL(p.price)} — ${prob}% de chance de boa venda!`,
+        notification: `${prob >= 70 ? '🚨' : '🔴'} ${ticker} ${fmtBRL(p.price)} — sinal de venda (${prob}%)`,
         time: 'agora', priority: prob
       };
       opps.push(opp);
@@ -1405,16 +1457,16 @@ function detectOpportunities() {
     notifiedOpps.add(opp.key);
     showToast({ type: opp.type, title: opp.title, msg: opp.desc });
 
-    // Alertas de verdade, não ruído: sinais de VENDA/prejuízo/lucro são sobre a SUA posição,
-    // então sempre avisam. Sinais de COMPRA só disparam notificação de verdade quando são
-    // de um ativo de convicção (🎯/🛰️) ou quando o sinal técnico é forte demais pra ignorar.
+    // Notificação push: venda/stop/lucro sempre avisam (são sobre SUA posição).
+    // Compra de ativo de convicção avisa sempre (é algo que eu recomendo acompanhar).
+    // Compra especulativa só avisa se o sinal for forte (≥65%) — senão é ruído.
     const shouldPush = opp.type !== 'buy'
       ? true
       : (opp.conviction === 'high' || opp.conviction === 'satellite' || opp.probability >= 65);
 
     if (shouldPush && state.settings.notifications && 'Notification' in window && Notification.permission === 'granted') {
       try {
-        const n = new Notification(`${opp.probability}% — ${opp.title.replace(/[🎯🛰️🟢🔴🚨🟡🔵⚡💎📉📈]/g, '').trim()}`, {
+        const n = new Notification(`${opp.probability}% — ${opp.title.replace(/[\u{1F300}-\u{1FAFF}]/gu, '').trim()}`, {
           body: opp.notification, tag: opp.key,
           requireInteraction: opp.probability >= 60 || opp.conviction === 'high', silent: false
         });
