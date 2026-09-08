@@ -1249,25 +1249,25 @@ function detectOpportunities() {
       const prob = buyScore.total;
       const targets = suggestTargets('crypto');
       const key = oppKey('buy', coin.id, 'score');
-      // Combina convicção + timing pra dar uma orientação clara
+      // Combina qualidade do ativo + timing pra dar uma orientação clara
       let title, notif;
       if (isConviction && prob >= 65) {
-        title = `🚨 COMPRA AGORA: ${sym} — ativo de convicção + timing forte (${prob}%)`;
-        notif = `🚨 COMPRA ${sym} ${fmtBRL(p.price)} — confio no ativo E o momento tá bom! Alvo +${targets.target}`;
+        title = `🚨 COMPRA AGORA: ${sym} — ativo sólido + momento bom (${prob}%)`;
+        notif = `🚨 COMPRA ${sym} ${fmtBRL(p.price)} — ativo sólido E o momento tá bom! Alvo +${targets.target}`;
       } else if (isConviction && prob >= 45) {
-        title = `🎯 ${sym} ficando interessante — ativo de convicção, timing razoável (${prob}%)`;
-        notif = `🎯 ${sym} ${fmtBRL(p.price)} — ativo bom, momento se formando (${prob}%)`;
+        title = `🎯 ${sym} ficando interessante — ativo sólido, momento se formando (${prob}%)`;
+        notif = `🎯 ${sym} ${fmtBRL(p.price)} — ativo sólido, momento se formando (${prob}%)`;
       } else if (isConviction) {
-        title = `👀 ${sym} no radar — ativo de convicção, mas timing fraco (${prob}%)`;
-        notif = `👀 ${sym} ${fmtBRL(p.price)} — gosto do ativo, mas não é hora ainda (${prob}%)`;
+        title = `👀 ${sym} no radar — ativo sólido, mas não é hora de comprar (${prob}%)`;
+        notif = `👀 ${sym} ${fmtBRL(p.price)} — ativo sólido, mas timing fraco (${prob}%)`;
       } else if (prob >= 70) {
-        title = `🚨 SINAL FORTE de trade: ${sym} (${prob}%) — especulativo`;
+        title = `🚨 SINAL FORTE de trade: ${sym} (${prob}%) — arriscado, mas o momento compensa`;
         notif = `🚨 Trade ${sym} ${fmtBRL(p.price)} — sinal forte (${prob}%)! Alvo +${targets.target}, stop -${targets.stop}`;
       } else if (prob >= 45) {
-        title = `🟢 Sinal de trade: ${sym} (${prob}%) — especulativo`;
+        title = `🟢 Sinal de trade: ${sym} (${prob}%) — arriscado, fique atento`;
         notif = `🟢 Trade ${sym} ${fmtBRL(p.price)} — sinal razoável (${prob}%)`;
       } else {
-        title = `👀 ${sym} no radar (${prob}%) — especulativo, só observando`;
+        title = `👀 ${sym} no radar (${prob}%) — arriscado e momento fraco, só observar`;
         notif = `👀 ${sym} ${fmtBRL(p.price)} — movimento fraco (${prob}%), só acompanhar`;
       }
       if (tier === 'satellite') title += ' · posição pequena';
@@ -1294,7 +1294,7 @@ function detectOpportunities() {
       } else {
         sellTitle = `🟡 ${sym} subindo — fique atento (${prob}%)`;
       }
-      if (tier === 'high') sellTitle += ' · p/ quem faz trade; quem segura, ignora';
+      if (tier === 'high') sellTitle += ' · ativo sólido: só pra trade de curto prazo';
       const opp = {
         key, type: 'sell', probability: prob, conviction: tier,
         title: sellTitle,
@@ -1365,22 +1365,22 @@ function detectOpportunities() {
       const key = oppKey('buy', ticker, 'score');
       let title, notif;
       if (isConviction && prob >= 65) {
-        title = `🚨 COMPRA AGORA: ${ticker} — ativo de convicção + timing forte (${prob}%)`;
-        notif = `🚨 COMPRA ${ticker} ${fmtBRL(p.price)} — confio no ativo E o momento tá bom! Alvo +${targets.target}`;
+        title = `🚨 COMPRA AGORA: ${ticker} — ativo sólido + momento bom (${prob}%)`;
+        notif = `🚨 COMPRA ${ticker} ${fmtBRL(p.price)} — ativo sólido E o momento tá bom! Alvo +${targets.target}`;
       } else if (isConviction && prob >= 45) {
-        title = `🎯 ${ticker} ficando interessante — ativo de convicção, timing razoável (${prob}%)`;
-        notif = `🎯 ${ticker} ${fmtBRL(p.price)} — ativo bom, momento se formando (${prob}%)`;
+        title = `🎯 ${ticker} ficando interessante — ativo sólido, momento se formando (${prob}%)`;
+        notif = `🎯 ${ticker} ${fmtBRL(p.price)} — ativo sólido, momento se formando (${prob}%)`;
       } else if (isConviction) {
-        title = `👀 ${ticker} no radar — ativo de convicção, mas timing fraco (${prob}%)`;
-        notif = `👀 ${ticker} ${fmtBRL(p.price)} — gosto do ativo, mas não é hora ainda (${prob}%)`;
+        title = `👀 ${ticker} no radar — ativo sólido, mas não é hora de comprar (${prob}%)`;
+        notif = `👀 ${ticker} ${fmtBRL(p.price)} — ativo sólido, mas timing fraco (${prob}%)`;
       } else if (prob >= 70) {
-        title = `🚨 SINAL FORTE de trade: ${ticker} (${prob}%) — especulativo`;
+        title = `🚨 SINAL FORTE de trade: ${ticker} (${prob}%) — arriscado, mas o momento compensa`;
         notif = `🚨 Trade ${ticker} ${fmtBRL(p.price)} — sinal forte (${prob}%)! Alvo +${targets.target}, stop -${targets.stop}`;
       } else if (prob >= 45) {
-        title = `🟢 Sinal de trade: ${ticker} (${prob}%) — especulativo`;
+        title = `🟢 Sinal de trade: ${ticker} (${prob}%) — arriscado, fique atento`;
         notif = `🟢 Trade ${ticker} ${fmtBRL(p.price)} — sinal razoável (${prob}%)`;
       } else {
-        title = `👀 ${ticker} no radar (${prob}%) — especulativo, só observando`;
+        title = `👀 ${ticker} no radar (${prob}%) — arriscado e momento fraco, só observar`;
         notif = `👀 ${ticker} ${fmtBRL(p.price)} — movimento fraco (${prob}%), só acompanhar`;
       }
       const opp = {
@@ -1406,7 +1406,7 @@ function detectOpportunities() {
       } else {
         sellTitle = `🟡 ${ticker} subindo — fique atento (${prob}%)`;
       }
-      if (tier === 'high') sellTitle += ' · p/ quem faz trade; quem segura, ignora';
+      if (tier === 'high') sellTitle += ' · ativo sólido: só pra trade de curto prazo';
       const opp = {
         key, type: 'sell', probability: prob, conviction: tier,
         title: sellTitle,
