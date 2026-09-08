@@ -576,9 +576,24 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
       <span id="status-text">Inicializando...</span>
     </div>
     <div style="display:flex;gap:12px;align-items:center">
+      <button onclick="document.getElementById('debug-panel').hidden = !document.getElementById('debug-panel').hidden" style="font-size:.7rem;padding:2px 6px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-raised);cursor:pointer" title="Diagnóstico">🔧</button>
       <span>Dados: <a href="https://www.coingecko.com" target="_blank" rel="noopener">CoinGecko</a> · <a href="https://brapi.dev" target="_blank" rel="noopener">brapi.dev</a> · <a href="https://www.bcb.gov.br" target="_blank" rel="noopener">BCB</a></span>
     </div>
   </footer>
+
+  <!-- PAINEL DE DIAGNÓSTICO (oculto por padrão, abre com 🔧) -->
+  <div id="debug-panel" hidden style="margin:0 auto;max-width:1120px;padding:12px 16px">
+    <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:.68rem;line-height:1.6">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong>Diagnóstico</strong>
+        <div style="display:flex;gap:6px">
+          <button onclick="localStorage.removeItem('radar_oportunidades');localStorage.removeItem('radar_notified');location.reload()" style="font-size:.65rem;padding:3px 8px;border:1px solid var(--loss);color:var(--loss);border-radius:var(--radius-sm);background:var(--loss-bg);cursor:pointer">🗑 Limpar dados e recarregar</button>
+          <button onclick="refreshData()" style="font-size:.65rem;padding:3px 8px;border:1px solid var(--accent);color:var(--accent);border-radius:var(--radius-sm);background:var(--accent-glow);cursor:pointer">🔄 Forçar refresh</button>
+        </div>
+      </div>
+      <pre id="debug-panel-content" style="white-space:pre-wrap;word-break:break-all;color:var(--text-secondary);margin:0;max-height:200px;overflow-y:auto">Aguardando primeira atualização...</pre>
+    </div>
+  </div>
 </div>
 
 <!-- ADD ASSET MODAL -->
@@ -769,13 +784,22 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const saved = JSON.parse(raw);
-      state.watchlist = saved.watchlist || state.watchlist;
+      if (saved.watchlist) {
+        state.watchlist.crypto = Array.isArray(saved.watchlist.crypto) ? saved.watchlist.crypto : [];
+        state.watchlist.stocks = Array.isArray(saved.watchlist.stocks) ? saved.watchlist.stocks : [];
+      }
       state.positions = saved.positions || {};
-      state.alerts = saved.alerts || [];
-      state.settings = { ...state.settings, ...saved.settings };
-      state.dismissedCurated = saved.dismissedCurated || { crypto: [], stocks: [] };
+      state.alerts = Array.isArray(saved.alerts) ? saved.alerts : [];
+      state.settings = { ...state.settings, ...(saved.settings || {}) };
+      state.dismissedCurated = {
+        crypto: Array.isArray(saved.dismissedCurated?.crypto) ? saved.dismissedCurated.crypto : [],
+        stocks: Array.isArray(saved.dismissedCurated?.stocks) ? saved.dismissedCurated.stocks : []
+      };
     }
-  } catch (e) {}
+  } catch (e) {
+    // localStorage corrompido — reseta tudo
+    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+  }
 }
 
 function saveState() {
@@ -851,25 +875,38 @@ function timeAgo(d) {
   return Math.floor(diff/86400) + 'd atrás';
 }
 
-// Evita que uma API lenta/travada prenda o refresh pra sempre — corta em 12s e conta como erro,
-// pra próxima rodada (15s depois) tentar de novo em vez de ficar preso em "Atualizando...".
-async function fetchWithTimeout(url, ms = 12000) {
+// Busca com timeout que cobre TUDO: conexão, headers E leitura do body.
+// Retorna o JSON já parseado — se qualquer etapa travar, aborta e joga erro.
+async function fetchJSON(url, ms = 12000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
   try {
-    return await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json(); // corpo lido DENTRO do timeout
+    return data;
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Log de diagnóstico visível na página — ajuda a debugar no celular
+const _debugLog = [];
+function debugLog(msg) {
+  const ts = new Date().toLocaleTimeString('pt-BR');
+  _debugLog.push(`[${ts}] ${msg}`);
+  if (_debugLog.length > 30) _debugLog.shift();
+  const el = document.getElementById('debug-panel-content');
+  if (el) el.textContent = _debugLog.join('\n');
 }
 
 const API = {
   async fetchCryptoPrices(ids) {
     if (!ids.length) return {};
     const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=brl&ids=${ids.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=1h,24h,7d`;
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
-    const data = await res.json();
+    debugLog(`Cripto: buscando ${ids.length} moedas...`);
+    const data = await fetchJSON(url);
+    debugLog(`Cripto: recebeu ${data.length} resultados`);
     const result = {};
     for (const coin of data) {
       result[coin.id] = {
@@ -890,9 +927,9 @@ const API = {
   async fetchStockPrices(tickers) {
     if (!tickers.length || !state.settings.brapiToken) return {};
     const url = `https://brapi.dev/api/quote/${tickers.join(',')}?token=${state.settings.brapiToken}`;
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) throw new Error(`brapi ${res.status}`);
-    const data = await res.json();
+    debugLog(`Ações: buscando ${tickers.length} tickers...`);
+    const data = await fetchJSON(url);
+    debugLog(`Ações: recebeu dados`);
     const result = {};
     if (data.results) {
       for (const s of data.results) {
@@ -911,18 +948,14 @@ const API = {
 
   async fetchCDI() {
     try {
-      const res = await fetchWithTimeout('https://api.bcb.gov.br/dados/serie/bcdata.sgs.4389/dados/ultimos/1?formato=json', 8000);
-      if (!res.ok) return null;
-      const data = await res.json();
+      const data = await fetchJSON('https://api.bcb.gov.br/dados/serie/bcdata.sgs.4389/dados/ultimos/1?formato=json', 8000);
       return data[0] ? parseFloat(data[0].valor) : null;
     } catch { return null; }
   },
 
   async fetchUSD() {
     try {
-      const res = await fetchWithTimeout('https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados/ultimos/2?formato=json', 8000);
-      if (!res.ok) return null;
-      const data = await res.json();
+      const data = await fetchJSON('https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados/ultimos/2?formato=json', 8000);
       if (data.length >= 2) {
         const current = parseFloat(data[data.length-1].valor);
         const prev = parseFloat(data[data.length-2].valor);
@@ -935,13 +968,12 @@ const API = {
 
   async searchCryptos(query) {
     if (!query || query.length < 2) return [];
-    const url = `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`;
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.coins || []).slice(0, 15).map(c => ({
-      id: c.id, symbol: c.symbol, name: c.name, image: c.thumb
-    }));
+    try {
+      const data = await fetchJSON(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`, 10000);
+      return (data.coins || []).slice(0, 15).map(c => ({
+        id: c.id, symbol: c.symbol, name: c.name, image: c.thumb
+      }));
+    } catch { return []; }
   }
 };
 
@@ -1629,17 +1661,16 @@ function showToast({ type, title, msg, duration }) {
 let refreshInProgress = false;
 
 async function refreshData() {
-  // Com refresh a cada 15s, uma API lenta pode não terminar antes da próxima rodada.
-  // Sem essa trava, as chamadas se empilham e tudo fica mais lento ainda.
   if (refreshInProgress) return;
   refreshInProgress = true;
   const statusDot = document.getElementById('status-dot');
   const statusText = document.getElementById('status-text');
   statusDot.className = 'status-dot loading';
   statusText.textContent = 'Atualizando...';
+  debugLog('refresh: início');
   const errors = [];
   try {
-    const cryptoIds = new Set(state.watchlist.crypto.map(c => c.id));
+    const cryptoIds = new Set((state.watchlist.crypto || []).map(c => c.id));
     cryptoIds.add('bitcoin');
     cryptoIds.add('ethereum');
     try {
@@ -1656,7 +1687,10 @@ async function refreshData() {
           }
         }
       }
-    } catch (e) { errors.push('Cripto'); console.warn('Crypto fetch error:', e); }
+    } catch (e) {
+      errors.push('Cripto');
+      debugLog(`Cripto ERRO: ${e.name}: ${e.message}`);
+    }
     if (state.watchlist.stocks.length && state.settings.brapiToken) {
       try {
         const prices = await API.fetchStockPrices(state.watchlist.stocks);
@@ -1672,7 +1706,10 @@ async function refreshData() {
             }
           }
         }
-      } catch (e) { errors.push('Ações'); console.warn('Stocks fetch error:', e); }
+      } catch (e) {
+        errors.push('Ações');
+        debugLog(`Ações ERRO: ${e.name}: ${e.message}`);
+      }
     }
     try {
       const [cdi, usd] = await Promise.all([API.fetchCDI(), API.fetchUSD()]);
@@ -1683,19 +1720,27 @@ async function refreshData() {
         usdEl.textContent = fmtPct(usd.change);
         usdEl.className = 'ticker-change ' + (usd.change >= 0 ? 'change-up' : 'change-down');
       }
-    } catch (e) {}
-    UI.renderCryptoCards();
-    UI.renderStockCards();
-    UI.renderTicker();
-    detectOpportunities();
-    checkAlerts();
+      debugLog('BCB (CDI/USD): ok');
+    } catch (e) { debugLog(`BCB ERRO: ${e.message}`); }
+    try { UI.renderCryptoCards(); } catch (e) { debugLog(`render crypto ERRO: ${e.message}`); }
+    try { UI.renderStockCards(); } catch (e) { debugLog(`render stocks ERRO: ${e.message}`); }
+    try { UI.renderTicker(); } catch (e) { debugLog(`render ticker ERRO: ${e.message}`); }
+    try { detectOpportunities(); } catch (e) { debugLog(`detectOpps ERRO: ${e.message}`); }
+    try { checkAlerts(); } catch (e) { debugLog(`checkAlerts ERRO: ${e.message}`); }
     if (errors.length) {
       statusDot.className = 'status-dot offline';
-      statusText.textContent = `Erro ao atualizar: ${errors.join(', ')} — tentando de novo em instantes`;
+      statusText.textContent = `Erro: ${errors.join(', ')} — tentando de novo`;
+      debugLog(`refresh: fim com erros: ${errors.join(', ')}`);
     } else {
       statusDot.className = 'status-dot online';
       statusText.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
+      debugLog('refresh: fim OK');
     }
+  } catch (e) {
+    // Captura qualquer erro inesperado que teria deixado o status preso em "Atualizando..."
+    debugLog(`refresh CRASH: ${e.name}: ${e.message}`);
+    statusDot.className = 'status-dot offline';
+    statusText.textContent = `Erro inesperado — toque 🔧 para ver`;
   } finally {
     refreshInProgress = false;
   }
@@ -2025,7 +2070,17 @@ document.getElementById('stock-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') addStock();
 });
 
+// Captura erros globais que não caem em nenhum try/catch
+window.addEventListener('unhandledrejection', e => {
+  debugLog(`UNHANDLED: ${e.reason?.message || e.reason}`);
+});
+window.addEventListener('error', e => {
+  debugLog(`ERROR: ${e.message} @ ${e.filename}:${e.lineno}`);
+});
+
 (function init() {
+  try {
+  debugLog('init: carregando state...');
   loadState();
   loadNotifiedOpps();
   applyTheme();
@@ -2034,6 +2089,7 @@ document.getElementById('stock-input').addEventListener('keydown', e => {
   UI.renderCryptoCards();
   UI.renderStockCards();
   UI.renderAlerts();
+  debugLog(`init: watchlist ${state.watchlist.crypto.length} cryptos, ${state.watchlist.stocks.length} ações`);
 
   const isFirstRun = !state.watchlist.crypto.length && !state.watchlist.stocks.length;
   if (isFirstRun) {
@@ -2043,13 +2099,14 @@ document.getElementById('stock-input').addEventListener('keydown', e => {
   }
   const cryptoCountBefore = state.watchlist.crypto.length;
   const stockCountBefore = state.watchlist.stocks.length;
-  syncCuratedAssets(); // adiciona ativos que eu passei a curar depois, sem duplicar nem reviver o que você removeu
+  syncCuratedAssets();
   if (state.watchlist.crypto.length !== cryptoCountBefore || state.watchlist.stocks.length !== stockCountBefore) {
     saveState();
     UI.renderCryptoCards();
     UI.renderStockCards();
     UI.renderAlerts();
     renderPopular();
+    debugLog(`init: sync adicionou ${state.watchlist.crypto.length - cryptoCountBefore} cryptos, ${state.watchlist.stocks.length - stockCountBefore} ações`);
   }
 
   if ('Notification' in window && Notification.permission === 'default') {
@@ -2068,8 +2125,19 @@ document.getElementById('stock-input').addEventListener('keydown', e => {
     }, 2000);
   }
 
+  debugLog('init: lançando primeiro refresh...');
   refreshData();
   startAutoRefresh();
+  } catch (e) {
+    debugLog(`init CRASH: ${e.name}: ${e.message}`);
+    const sd = document.getElementById('status-dot');
+    const st = document.getElementById('status-text');
+    if (sd) sd.className = 'status-dot offline';
+    if (st) st.textContent = 'Erro na inicialização — toque 🔧';
+    // Abre o debug automaticamente se deu crash no init
+    const dp = document.getElementById('debug-panel');
+    if (dp) dp.hidden = false;
+  }
 })();
 </script></body>
 </html>
