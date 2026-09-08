@@ -321,7 +321,7 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
   <header class="header">
     <div class="header-left">
       <div class="logo">📡</div>
-      <h1>Radar de Oportunidades <span>Curadoria própria · 🎯 convicção · ⚠️ especulativo</span></h1>
+      <h1>Radar de Oportunidades <span>Modo curto prazo · atualiza a cada 15s</span></h1>
     </div>
     <div class="header-actions">
       <button class="btn-icon" onclick="toggleTheme()" title="Alternar tema" aria-label="Alternar tema">🌓</button>
@@ -334,8 +334,8 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
     <span class="disclaimer-icon">⚠️</span>
     <div>
       <strong>Isso não é recomendação de investimento — é opinião pessoal.</strong>
-      O radar monitora uma lista curada por convicção, não os mais populares: <strong>🎯 = eu seguraria por anos</strong>, <strong>🛰️ = satélite, posição pequena</strong>, <strong>⚠️ = especulativo, só monitorar</strong>. Passe o mouse/toque no ícone pra ver o motivo. A % de probabilidade é um <em>score técnico de curto prazo</em> — <strong>não é previsão do futuro</strong>. Toda decisão é sua.
-      Ative as notificações: alertas de compra em ativos 🎯/🛰️ chegam sempre; em ativos ⚠️ especulativos só quando o sinal é muito forte.
+      <strong>Modo curto prazo:</strong> atualiza a cada 15s, sinais mais sensíveis (a partir de 2% de queda / 5% de alta) e cada alerta de compra já traz alvo e stop sugeridos pra operação rápida. Os ícones <strong>🎯 = eu seguraria por anos</strong>, <strong>🛰️ = satélite</strong>, <strong>⚠️ = especulativo</strong> são minha opinião sobre a <em>qualidade do negócio</em>, não sobre a entrada agora — inclusive ativos ⚠️ tendem a gerar mais sinais de curto prazo por serem mais voláteis. A % de probabilidade é um <em>score técnico</em> — <strong>não é previsão do futuro</strong>. Toda decisão é sua, e operação de curto prazo tem risco real de perda rápida.
+      Ative as notificações: alertas de compra em ativos 🎯/🛰️ chegam sempre; em ⚠️ especulativos só quando o sinal é muito forte.
     </div>
     <button class="disclaimer-close" onclick="dismissDisclaimer()">✕</button>
   </div>
@@ -405,7 +405,7 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
   <section class="panel active" id="panel-opportunities">
     <div class="cards-header">
       <h2>🔔 Oportunidades Detectadas</h2>
-      <span style="font-size:.78rem;color:var(--text-muted)">🎯 Eu compraria · 🛰️ Satélite · ⚠️ Especulativo · Atualiza a cada 30s</span>
+      <span style="font-size:.78rem;color:var(--text-muted)">Modo curto prazo · alvo/stop em cada sinal · atualiza a cada 15s</span>
     </div>
     <div class="opps-list" id="opps-list">
       <div class="opp-empty" id="opps-empty">
@@ -486,8 +486,8 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
             <div class="setting-desc">Tempo entre consultas à API</div>
           </div>
           <select class="form-input" id="set-interval" onchange="saveSettings()" style="width:auto">
-            <option value="15">15 segundos</option>
-            <option value="30" selected>30 segundos</option>
+            <option value="15" selected>15 segundos</option>
+            <option value="30">30 segundos</option>
             <option value="60">1 minuto</option>
             <option value="120">2 minutos</option>
             <option value="300">5 minutos</option>
@@ -517,8 +517,10 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
             <div class="setting-desc">% de queda em 24h para sinalizar compra</div>
           </div>
           <select class="form-input" id="set-drop-threshold" onchange="saveSettings()" style="width:auto">
+            <option value="1">1%</option>
+            <option value="2" selected>2%</option>
             <option value="3">3%</option>
-            <option value="5" selected>5%</option>
+            <option value="5">5%</option>
             <option value="8">8%</option>
             <option value="10">10%</option>
             <option value="15">15%</option>
@@ -530,9 +532,10 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
             <div class="setting-desc">% de alta em 24h para sinalizar venda</div>
           </div>
           <select class="form-input" id="set-rise-threshold" onchange="saveSettings()" style="width:auto">
-            <option value="5">5%</option>
+            <option value="3">3%</option>
+            <option value="5" selected>5%</option>
             <option value="8">8%</option>
-            <option value="10" selected>10%</option>
+            <option value="10">10%</option>
             <option value="15">15%</option>
             <option value="20">20%</option>
           </select>
@@ -719,6 +722,15 @@ function convictionBadge(assetId, type) {
   return `<span title="${c.why.replace(/"/g,'&quot;')}" style="cursor:help">⚠️</span>`;
 }
 
+/* Modo curto prazo: alvo/stop sugeridos por classe de ativo.
+   Cripto é mais volátil (negocia 24/7) — dá pra mirar mais alto.
+   Ação B3 só se move dentro do horário de pregão — alvo mais curto. */
+function suggestTargets(assetClass) {
+  return assetClass === 'crypto'
+    ? { target: '6–10%', stop: '4%' }
+    : { target: '3–5%', stop: '2,5%' };
+}
+
 let state = {
   watchlist: { crypto: [], stocks: [] },
   positions: {},
@@ -726,11 +738,11 @@ let state = {
   prices: { crypto: {}, stocks: {} },
   opportunities: [],
   settings: {
-    refreshInterval: 30,
+    refreshInterval: 15,
     notifications: false,
     sound: true,
-    dropThreshold: 5,
-    riseThreshold: 10,
+    dropThreshold: 2,
+    riseThreshold: 5,
     brapiToken: '',
     dismissedDisclaimer: false,
     theme: null
@@ -1165,12 +1177,13 @@ function detectOpportunities() {
       const prob = buyScore.total;
       const urgency = isConviction ? '🎯 EU COMPRARIA' : (prob >= 70 ? '🚨 URGENTE!' : prob >= 55 ? '🟢' : '🔵');
       const tierNote = tier === 'speculative' ? ' — especulativo, não é minha convicção' : tier === 'satellite' ? ' — satélite, posição pequena' : '';
+      const targets = suggestTargets('crypto');
       const key = oppKey('buy', coin.id, 'score');
       const opp = {
         key, type: 'buy', probability: prob, conviction: tier,
         title: `${urgency}: ${sym} — ${prob}% de confiança${tierNote}`,
-        desc: `${fmtBRL(p.price)} · ${buyScore.reasons.join(' · ')}${conv ? ' · ' + conv.why : ''}`,
-        notification: `${urgency} ${sym} ${fmtBRL(p.price)} — ${prob}% de chance de boa compra! ${buyScore.reasons[0]}`,
+        desc: `${fmtBRL(p.price)} · ${buyScore.reasons.join(' · ')} · 🎯 Curto prazo: alvo +${targets.target} | stop -${targets.stop}`,
+        notification: `${urgency} ${sym} ${fmtBRL(p.price)} — ${prob}% de chance de boa compra! Alvo +${targets.target}, stop -${targets.stop}`,
         time: 'agora', priority: prob + (isConviction ? 10 : 0)
       };
       opps.push(opp);
@@ -1196,33 +1209,33 @@ function detectOpportunities() {
 
     if (pos && pos.buyPrice && p.price) {
       const pnlPct = ((p.price - pos.buyPrice) / pos.buyPrice) * 100;
-      if (pnlPct <= -10) {
-        const severity = pnlPct <= -25 ? 95 : pnlPct <= -20 ? 85 : pnlPct <= -15 ? 70 : 55;
-        const key = oppKey('loss', coin.id, Math.floor(pnlPct / 5) * 5 + 'pct');
+      if (pnlPct <= -5) {
+        const severity = pnlPct <= -15 ? 95 : pnlPct <= -10 ? 85 : pnlPct <= -7 ? 70 : 55;
+        const key = oppKey('loss', coin.id, Math.floor(pnlPct / 3) * 3 + 'pct');
         const opp = {
           key, type: 'sell', probability: severity,
-          title: `🚨 PREJUÍZO: ${sym} caiu ${Math.abs(pnlPct).toFixed(1)}% desde sua compra!`,
-          desc: `Compra: ${fmtBRL(pos.buyPrice)} → Agora: ${fmtBRL(p.price)}. Perda: ${fmtBRL(Math.abs(p.price - pos.buyPrice))}/un.${pos.quantity ? ' Total: ' + fmtBRL(Math.abs((p.price - pos.buyPrice) * pos.quantity)) : ''}`,
+          title: `🚨 STOP LOSS: ${sym} caiu ${Math.abs(pnlPct).toFixed(1)}% desde sua compra!`,
+          desc: `Compra: ${fmtBRL(pos.buyPrice)} → Agora: ${fmtBRL(p.price)}. Perda: ${fmtBRL(Math.abs(p.price - pos.buyPrice))}/un.${pos.quantity ? ' Total: ' + fmtBRL(Math.abs((p.price - pos.buyPrice) * pos.quantity)) : ''} · Curto prazo: considere sair aqui.`,
           notification: `🚨 ${sym} caiu ${Math.abs(pnlPct).toFixed(1)}% desde sua compra! Stop loss?`,
           time: 'agora', priority: severity + 5
         };
         opps.push(opp);
         if (!notifiedOpps.has(key)) newSignals.push(opp);
       }
-      if (pnlPct >= 15) {
-        const quality = pnlPct >= 100 ? 92 : pnlPct >= 50 ? 82 : pnlPct >= 30 ? 70 : 55;
-        const key = oppKey('profit', coin.id, Math.floor(pnlPct / 10) * 10 + 'pct');
+      if (pnlPct >= 8) {
+        const quality = pnlPct >= 40 ? 92 : pnlPct >= 20 ? 82 : pnlPct >= 12 ? 70 : 55;
+        const key = oppKey('profit', coin.id, Math.floor(pnlPct / 4) * 4 + 'pct');
         const opp = {
           key, type: 'sell', probability: quality,
-          title: `💰 LUCRO: ${sym} subiu ${pnlPct.toFixed(1)}% desde sua compra!`,
-          desc: `Compra: ${fmtBRL(pos.buyPrice)} → Agora: ${fmtBRL(p.price)}. Ganho: ${fmtBRL(p.price - pos.buyPrice)}/un.${pos.quantity ? ' Total: +' + fmtBRL((p.price - pos.buyPrice) * pos.quantity) : ''} Realizar?`,
-          notification: `💰 ${sym} +${pnlPct.toFixed(1)}% desde compra! Realizar lucro?`,
+          title: `💰 REALIZAR LUCRO: ${sym} subiu ${pnlPct.toFixed(1)}% desde sua compra!`,
+          desc: `Compra: ${fmtBRL(pos.buyPrice)} → Agora: ${fmtBRL(p.price)}. Ganho: ${fmtBRL(p.price - pos.buyPrice)}/un.${pos.quantity ? ' Total: +' + fmtBRL((p.price - pos.buyPrice) * pos.quantity) : ''} · Curto prazo: bateu o alvo, considere realizar.`,
+          notification: `💰 ${sym} +${pnlPct.toFixed(1)}% desde compra! Bateu o alvo de curto prazo.`,
           time: 'agora', priority: quality + 5
         };
         opps.push(opp);
         if (!notifiedOpps.has(key)) newSignals.push(opp);
       }
-      if (pnlPct > -2 && pnlPct < 2 && pnlPct !== 0) {
+      if (pnlPct > -1 && pnlPct < 1 && pnlPct !== 0) {
         const key = oppKey('recover', coin.id, 'breakeven');
         const opp = {
           key, type: 'info', probability: 40,
@@ -1251,12 +1264,13 @@ function detectOpportunities() {
       const prob = buyScore.total;
       const urgency = isConviction ? '🎯 EU COMPRARIA' : (prob >= 70 ? '🚨 URGENTE!' : prob >= 55 ? '🟢' : '🔵');
       const tierNote = tier === 'speculative' ? ' — especulativo, não é minha convicção' : '';
+      const targets = suggestTargets('stock');
       const key = oppKey('buy', ticker, 'score');
       const opp = {
         key, type: 'buy', probability: prob, conviction: tier,
         title: `${urgency}: ${ticker} — ${prob}% de confiança${tierNote}`,
-        desc: `${p.name} a ${fmtBRL(p.price)} · ${buyScore.reasons.join(' · ')}${conv ? ' · ' + conv.why : ''}`,
-        notification: `${urgency} ${ticker} ${fmtBRL(p.price)} — ${prob}% de chance de boa compra!`,
+        desc: `${p.name} a ${fmtBRL(p.price)} · ${buyScore.reasons.join(' · ')} · 🎯 Curto prazo: alvo +${targets.target} | stop -${targets.stop}`,
+        notification: `${urgency} ${ticker} ${fmtBRL(p.price)} — ${prob}% de chance de boa compra! Alvo +${targets.target}, stop -${targets.stop}`,
         time: 'agora', priority: prob + (isConviction ? 10 : 0)
       };
       opps.push(opp);
@@ -1282,27 +1296,27 @@ function detectOpportunities() {
 
     if (pos && pos.buyPrice && p.price) {
       const pnlPct = ((p.price - pos.buyPrice) / pos.buyPrice) * 100;
-      if (pnlPct <= -10) {
-        const severity = pnlPct <= -25 ? 95 : pnlPct <= -20 ? 85 : pnlPct <= -15 ? 70 : 55;
-        const key = oppKey('loss', ticker, Math.floor(pnlPct / 5) * 5 + 'pct');
+      if (pnlPct <= -3) {
+        const severity = pnlPct <= -10 ? 95 : pnlPct <= -6 ? 85 : pnlPct <= -4 ? 70 : 55;
+        const key = oppKey('loss', ticker, Math.floor(pnlPct / 2) * 2 + 'pct');
         const opp = {
           key, type: 'sell', probability: severity,
-          title: `🚨 PREJUÍZO: ${ticker} caiu ${Math.abs(pnlPct).toFixed(1)}% desde sua compra!`,
-          desc: `Compra: ${fmtBRL(pos.buyPrice)} → Agora: ${fmtBRL(p.price)}.${pos.quantity ? ' Perda total: ' + fmtBRL(Math.abs((p.price - pos.buyPrice) * pos.quantity)) : ''}`,
+          title: `🚨 STOP LOSS: ${ticker} caiu ${Math.abs(pnlPct).toFixed(1)}% desde sua compra!`,
+          desc: `Compra: ${fmtBRL(pos.buyPrice)} → Agora: ${fmtBRL(p.price)}.${pos.quantity ? ' Perda total: ' + fmtBRL(Math.abs((p.price - pos.buyPrice) * pos.quantity)) : ''} · Curto prazo: considere sair aqui.`,
           notification: `🚨 ${ticker} caiu ${Math.abs(pnlPct).toFixed(1)}% desde sua compra! Stop loss?`,
           time: 'agora', priority: severity + 5
         };
         opps.push(opp);
         if (!notifiedOpps.has(key)) newSignals.push(opp);
       }
-      if (pnlPct >= 15) {
-        const quality = pnlPct >= 100 ? 92 : pnlPct >= 50 ? 82 : pnlPct >= 30 ? 70 : 55;
-        const key = oppKey('profit', ticker, Math.floor(pnlPct / 10) * 10 + 'pct');
+      if (pnlPct >= 4) {
+        const quality = pnlPct >= 20 ? 92 : pnlPct >= 10 ? 82 : pnlPct >= 6 ? 70 : 55;
+        const key = oppKey('profit', ticker, Math.floor(pnlPct / 2) * 2 + 'pct');
         const opp = {
           key, type: 'sell', probability: quality,
-          title: `💰 LUCRO: ${ticker} subiu ${pnlPct.toFixed(1)}% desde sua compra!`,
-          desc: `Compra: ${fmtBRL(pos.buyPrice)} → Agora: ${fmtBRL(p.price)}.${pos.quantity ? ' Lucro total: +' + fmtBRL((p.price - pos.buyPrice) * pos.quantity) : ''} Realizar?`,
-          notification: `💰 ${ticker} +${pnlPct.toFixed(1)}% desde compra! Realizar lucro?`,
+          title: `💰 REALIZAR LUCRO: ${ticker} subiu ${pnlPct.toFixed(1)}% desde sua compra!`,
+          desc: `Compra: ${fmtBRL(pos.buyPrice)} → Agora: ${fmtBRL(p.price)}.${pos.quantity ? ' Lucro total: +' + fmtBRL((p.price - pos.buyPrice) * pos.quantity) : ''} · Curto prazo: bateu o alvo, considere realizar.`,
+          notification: `💰 ${ticker} +${pnlPct.toFixed(1)}% desde compra! Bateu o alvo de curto prazo.`,
           time: 'agora', priority: quality + 5
         };
         opps.push(opp);
@@ -1353,11 +1367,11 @@ function calcBuyScore(p, dropThresh, pos) {
     reasons.push(`Queda de ${dropMag.toFixed(1)}% em 24h`);
   }
   if (p.change1h != null) {
-    if (p.change1h < -3) {
-      score += Math.min(15, 8 + Math.abs(p.change1h));
-      reasons.push(`Caindo ${Math.abs(p.change1h).toFixed(1)}% agora (1h)`);
-    } else if (p.change1h > 2) {
-      score += 8;
+    if (p.change1h < -2) {
+      score += Math.min(25, 12 + Math.abs(p.change1h) * 1.5);
+      reasons.push(`Caindo ${Math.abs(p.change1h).toFixed(1)}% agora (1h) — movimento fresco`);
+    } else if (p.change1h > 1.5) {
+      score += 10;
       reasons.push(`Recuperando ${p.change1h.toFixed(1)}% na última hora`);
     }
   }
@@ -1403,8 +1417,8 @@ function calcSellScore(p, riseThresh, pos) {
     reasons.push(`Alta de ${riseMag.toFixed(1)}% em 24h`);
   }
   if (p.change1h != null) {
-    if (p.change1h > 3) { score += Math.min(15, 8 + p.change1h); reasons.push(`Disparando ${p.change1h.toFixed(1)}% agora (1h)`); }
-    else if (p.change1h < -2 && p.change24h > riseThresh) { score += 10; reasons.push('Revertendo após alta — possível topo'); }
+    if (p.change1h > 2) { score += Math.min(25, 12 + p.change1h * 1.5); reasons.push(`Disparando ${p.change1h.toFixed(1)}% agora (1h) — pode ser hora de realizar`); }
+    else if (p.change1h < -1.5 && p.change24h > riseThresh) { score += 10; reasons.push('Revertendo após alta — possível topo'); }
   }
   if (p.high24h && p.price && p.high24h > 0) {
     const dist = ((p.high24h - p.price) / p.high24h) * 100;
@@ -1438,13 +1452,14 @@ function calcStockBuyScore(p, dropThresh, pos) {
   const reasons = [];
   if (p.changePct != null && p.changePct <= -dropThresh) {
     const dropMag = Math.abs(p.changePct);
-    score += Math.min(35, 15 + (dropMag - dropThresh) * 3);
+    score += Math.min(40, 18 + (dropMag - dropThresh) * 3.5);
     reasons.push(`Queda de ${dropMag.toFixed(1)}% hoje`);
   }
   if (p.low && p.price && p.low > 0) {
     const dist = ((p.price - p.low) / p.low) * 100;
-    if (dist < 1) { score += 15; reasons.push('Na mínima do dia!'); }
-    else if (dist < 3) { score += 10; reasons.push('Perto da mínima'); }
+    if (dist < 0.5) { score += 18; reasons.push('Na mínima do dia — pode reverter rápido!'); }
+    else if (dist < 1.5) { score += 12; reasons.push('Perto da mínima'); }
+    else if (dist < 3) { score += 6; reasons.push('Próximo da mínima do dia'); }
   }
   if (p.volume && p.volume > 0 && p.previousClose && p.price < p.previousClose) {
     score += 10;
@@ -1460,13 +1475,14 @@ function calcStockSellScore(p, riseThresh, pos) {
   const reasons = [];
   if (p.changePct != null && p.changePct >= riseThresh) {
     const riseMag = p.changePct;
-    score += Math.min(35, 15 + (riseMag - riseThresh) * 3);
+    score += Math.min(40, 18 + (riseMag - riseThresh) * 3.5);
     reasons.push(`Alta de ${riseMag.toFixed(1)}% hoje`);
   }
   if (p.high && p.price && p.high > 0) {
     const dist = ((p.high - p.price) / p.high) * 100;
-    if (dist < 1) { score += 15; reasons.push('Na máxima do dia!'); }
-    else if (dist < 3) { score += 10; reasons.push('Perto da máxima'); }
+    if (dist < 0.5) { score += 18; reasons.push('Na máxima do dia — considere realizar!'); }
+    else if (dist < 1.5) { score += 12; reasons.push('Perto da máxima'); }
+    else if (dist < 3) { score += 6; reasons.push('Próximo da máxima'); }
   }
   score = Math.max(0, Math.min(95, Math.round(score)));
   if (score < 25) return { total: 0, reasons: [] };
@@ -1835,10 +1851,10 @@ function quickAlert(assetId, type) {
 }
 
 function saveSettings() {
-  state.settings.refreshInterval = parseInt(document.getElementById('set-interval').value) || 30;
+  state.settings.refreshInterval = parseInt(document.getElementById('set-interval').value) || 15;
   state.settings.sound = document.getElementById('set-sound').checked;
-  state.settings.dropThreshold = parseInt(document.getElementById('set-drop-threshold').value) || 5;
-  state.settings.riseThreshold = parseInt(document.getElementById('set-rise-threshold').value) || 10;
+  state.settings.dropThreshold = parseInt(document.getElementById('set-drop-threshold').value) || 2;
+  state.settings.riseThreshold = parseInt(document.getElementById('set-rise-threshold').value) || 5;
   saveState();
   startAutoRefresh();
 }
@@ -1930,8 +1946,8 @@ function clearAllData() {
   state.prices = { crypto: {}, stocks: {} };
   state.opportunities = [];
   state.settings = {
-    refreshInterval: 30, notifications: false, sound: true,
-    dropThreshold: 5, riseThreshold: 10, brapiToken: '',
+    refreshInterval: 15, notifications: false, sound: true,
+    dropThreshold: 2, riseThreshold: 5, brapiToken: '',
     dismissedDisclaimer: false, theme: null
   };
   loadSettings();
@@ -1968,8 +1984,8 @@ document.getElementById('stock-input').addEventListener('keydown', e => {
     const curatedCryptoIds = Object.keys(CONVICTION.crypto);
     state.watchlist.crypto = POPULAR_CRYPTOS.filter(c => curatedCryptoIds.includes(c.id));
     state.watchlist.stocks = Object.keys(CONVICTION.stocks);
-    state.settings.dropThreshold = 3;
-    state.settings.riseThreshold = 8;
+    state.settings.dropThreshold = 2;
+    state.settings.riseThreshold = 5;
     saveState();
     loadSettings();
   }
