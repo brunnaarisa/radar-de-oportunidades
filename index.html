@@ -757,6 +757,31 @@ function suggestTargets(assetClass) {
     : { target: '3–5%', stop: '2,5%' };
 }
 
+// Service Worker pra notificações funcionarem no celular
+let swRegistration = null;
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    swRegistration = reg;
+    debugLog('Service Worker registrado');
+  }).catch(e => debugLog('SW falhou: ' + e.message));
+}
+
+// Wrapper: usa SW no mobile, fallback pra Notification no desktop
+function sendNotification(title, options) {
+  if (swRegistration) {
+    return swRegistration.showNotification(title, options);
+  }
+  // Fallback desktop
+  try {
+    const n = new Notification(title, options);
+    n.onclick = () => { window.focus(); n.close(); };
+    return Promise.resolve();
+  } catch (e) {
+    debugLog('Notificação falhou: ' + e.message);
+    return Promise.resolve();
+  }
+}
+
 let state = {
   watchlist: { crypto: [], stocks: [] },
   positions: {},
@@ -1468,13 +1493,10 @@ function detectOpportunities() {
       : (opp.conviction === 'high' || opp.conviction === 'satellite' || opp.probability >= 65);
 
     if (shouldPush && state.settings.notifications && 'Notification' in window && Notification.permission === 'granted') {
-      try {
-        const n = new Notification(`${opp.probability}% — ${opp.title.replace(/[\u{1F300}-\u{1FAFF}]/gu, '').trim()}`, {
-          body: opp.notification, tag: opp.key,
-          requireInteraction: opp.probability >= 60 || opp.conviction === 'high', silent: false
-        });
-        n.onclick = () => { window.focus(); n.close(); };
-      } catch (e) {}
+      sendNotification(`${opp.probability}% — ${opp.title.replace(/[\u{1F300}-\u{1FAFF}]/gu, '').trim()}`, {
+        body: opp.notification, tag: opp.key,
+        requireInteraction: opp.probability >= 60 || opp.conviction === 'high', silent: false
+      });
     }
     if (shouldPush && state.settings.sound) {
       if (opp.probability >= 70 || opp.conviction === 'high') playUrgentBeep();
@@ -1660,7 +1682,7 @@ function checkAlerts() {
       }[alert.condition];
       showToast({ type: alert.condition.includes('drop') || alert.condition === 'below' ? 'buy' : 'sell', title: `🔔 Alerta: ${alert.asset.toUpperCase()}`, msg: condText });
       if (state.settings.notifications && 'Notification' in window && Notification.permission === 'granted') {
-        new Notification(`Alerta: ${alert.asset.toUpperCase()}`, { body: condText, tag: alert.id });
+        sendNotification(`Alerta: ${alert.asset.toUpperCase()}`, { body: condText, tag: alert.id });
       }
       if (state.settings.sound) playBeep();
       UI.renderAlerts();
@@ -2063,17 +2085,15 @@ function testNotification() {
 }
 
 function sendTestNotification() {
-  try {
-    const n = new Notification('🎯 Radar funcionando!', {
-      body: 'Se você viu essa notificação, os alertas vão funcionar! Mantenha o radar aberto no navegador.',
-      tag: 'test-notification', silent: false
-    });
-    n.onclick = () => { window.focus(); n.close(); };
-    showToast({ type: 'buy', title: '✅ Notificação enviada!', msg: 'Deve ter aparecido uma notificação no seu celular. Se não apareceu, verifique as configurações do navegador.' });
+  sendNotification('🎯 Radar funcionando!', {
+    body: 'Os alertas vão chegar assim! Mantenha o radar aberto no navegador.',
+    tag: 'test-notification', silent: false
+  }).then(() => {
+    showToast({ type: 'buy', title: '✅ Notificação enviada!', msg: 'Deve ter aparecido uma notificação no seu celular.' });
     if (state.settings.sound) playBeep();
-  } catch (e) {
+  }).catch(e => {
     showToast({ type: 'info', title: 'Erro', msg: 'Não foi possível enviar: ' + e.message });
-  }
+  });
 }
 
 function saveBrapiToken() {
