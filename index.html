@@ -465,9 +465,12 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
         <div class="setting-row">
           <div>
             <div class="setting-label">Notificações do navegador</div>
-            <div class="setting-desc">Alertas mesmo com a aba minimizada</div>
+            <div class="setting-desc">Alertas mesmo com a aba minimizada (precisa manter o radar aberto)</div>
           </div>
-          <label class="toggle"><input type="checkbox" id="set-notifications" onchange="toggleNotifications()"><span class="toggle-track"></span></label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button onclick="testNotification()" style="font-size:.72rem;padding:4px 10px;border:1px solid var(--accent);color:var(--accent);border-radius:var(--radius-sm);background:var(--accent-glow);cursor:pointer;white-space:nowrap">🔔 Testar</button>
+            <label class="toggle"><input type="checkbox" id="set-notifications" onchange="toggleNotifications()"><span class="toggle-track"></span></label>
+          </div>
         </div>
         <div class="setting-row">
           <div>
@@ -2035,6 +2038,41 @@ function toggleNotifications() {
   } else {
     state.settings.notifications = false;
     saveState();
+  }
+}
+
+function testNotification() {
+  if (!('Notification' in window)) {
+    showToast({ type: 'info', title: 'Sem suporte', msg: 'Seu navegador não suporta notificações.' });
+    return;
+  }
+  if (Notification.permission !== 'granted') {
+    Notification.requestPermission().then(perm => {
+      if (perm === 'granted') {
+        state.settings.notifications = true;
+        document.getElementById('set-notifications').checked = true;
+        saveState();
+        sendTestNotification();
+      } else {
+        showToast({ type: 'info', title: 'Permissão negada', msg: 'Ative nas configurações do navegador: Configurações → Notificações → Permitir para este site.' });
+      }
+    });
+    return;
+  }
+  sendTestNotification();
+}
+
+function sendTestNotification() {
+  try {
+    const n = new Notification('🎯 Radar funcionando!', {
+      body: 'Se você viu essa notificação, os alertas vão funcionar! Mantenha o radar aberto no navegador.',
+      tag: 'test-notification', silent: false
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+    showToast({ type: 'buy', title: '✅ Notificação enviada!', msg: 'Deve ter aparecido uma notificação no seu celular. Se não apareceu, verifique as configurações do navegador.' });
+    if (state.settings.sound) playBeep();
+  } catch (e) {
+    showToast({ type: 'info', title: 'Erro', msg: 'Não foi possível enviar: ' + e.message });
   }
 }
 
