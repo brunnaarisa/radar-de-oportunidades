@@ -321,7 +321,7 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
   <header class="header">
     <div class="header-left">
       <div class="logo">📡</div>
-      <h1>Radar de Oportunidades <span>16 Criptos + 16 Ações B3 · Automático</span></h1>
+      <h1>Radar de Oportunidades <span>Curadoria própria · 🎯 convicção · ⚠️ especulativo</span></h1>
     </div>
     <div class="header-actions">
       <button class="btn-icon" onclick="toggleTheme()" title="Alternar tema" aria-label="Alternar tema">🌓</button>
@@ -333,9 +333,9 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
   <div class="disclaimer" id="disclaimer">
     <span class="disclaimer-icon">⚠️</span>
     <div>
-      <strong>Isso não é recomendação de investimento.</strong>
-      O radar monitora automaticamente 16 criptos e 16 ações da B3. A % de probabilidade é um <em>score de confiança</em> baseado em variação de preço, volume e indicadores técnicos — <strong>não é previsão do futuro</strong>. Toda decisão é sua.
-      Ative as notificações para receber alertas mesmo com a aba minimizada.
+      <strong>Isso não é recomendação de investimento — é opinião pessoal.</strong>
+      O radar monitora uma lista curada por convicção, não os mais populares: <strong>🎯 = eu seguraria por anos</strong>, <strong>🛰️ = satélite, posição pequena</strong>, <strong>⚠️ = especulativo, só monitorar</strong>. Passe o mouse/toque no ícone pra ver o motivo. A % de probabilidade é um <em>score técnico de curto prazo</em> — <strong>não é previsão do futuro</strong>. Toda decisão é sua.
+      Ative as notificações: alertas de compra em ativos 🎯/🛰️ chegam sempre; em ativos ⚠️ especulativos só quando o sinal é muito forte.
     </div>
     <button class="disclaimer-close" onclick="dismissDisclaimer()">✕</button>
   </div>
@@ -395,7 +395,7 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
     <div class="cards-grid" id="stocks-grid">
       <div class="empty-state" id="stocks-empty">
         <div class="emoji">📈</div>
-        <p>16 ações pré-carregadas</p>
+        <p>Ações selecionadas por convicção, não popularidade</p>
         <p style="font-size:.78rem">Configure seu token gratuito da <a href="https://brapi.dev" target="_blank" rel="noopener">brapi.dev</a> em ⚙️ Config para ver cotações</p>
       </div>
     </div>
@@ -405,7 +405,7 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
   <section class="panel active" id="panel-opportunities">
     <div class="cards-header">
       <h2>🔔 Oportunidades Detectadas</h2>
-      <span style="font-size:.78rem;color:var(--text-muted)">Escaneando 16 criptos + 16 ações · Atualiza a cada 30s</span>
+      <span style="font-size:.78rem;color:var(--text-muted)">🎯 Eu compraria · 🛰️ Satélite · ⚠️ Especulativo · Atualiza a cada 30s</span>
     </div>
     <div class="opps-list" id="opps-list">
       <div class="opp-empty" id="opps-empty">
@@ -683,6 +683,42 @@ const POPULAR_STOCKS = [
   'SUZB3','ELET3','JBSS3','MGLU3','PRIO3','RADL3','VIVT3','B3SA3'
 ];
 
+/* ===========================================================================
+   CURADORIA — não é lista de popularidade, é opinião.
+   'high'        = eu seguraria por anos, negócio/ativo de qualidade
+   'satellite'   = upside maior, risco maior — só posição pequena
+   'speculative' = eu monitoraria mas trataria como especulação/trade, não convicção
+   Ativos fora deste mapa (adicionados manualmente) são tratados como 'speculative'.
+   =========================================================================== */
+const CONVICTION = {
+  crypto: {
+    bitcoin:  { tier: 'high',        why: 'Reserva de valor mais madura e institucionalizada do mercado cripto' },
+    ethereum: { tier: 'high',        why: 'Infraestrutura líder do ecossistema — a maior parte do mundo cripto roda nela' },
+    solana:   { tier: 'satellite',   why: 'Upside maior que BTC/ETH, mas risco bem mais alto — só posição pequena' },
+  },
+  stocks: {
+    WEGE3: { tier: 'high',        why: 'Negócio excelente, cresce de forma consistente há décadas' },
+    ITUB4: { tier: 'high',        why: 'Banco mais bem gerido do país, dividendos sólidos' },
+    BBAS3: { tier: 'high',        why: 'Dividendo atrativo e valuation mais descontado que os bancos privados' },
+    VALE3: { tier: 'speculative', why: 'Depende do preço do minério — bom dividendo, mas cíclico' },
+    PETR4: { tier: 'speculative', why: 'Depende do petróleo e de política de preços — cíclico e sensível a governo' },
+    MGLU3: { tier: 'speculative', why: 'Turnaround de alto risco — só se você já entende a tese a fundo' },
+    PRIO3: { tier: 'speculative', why: 'Produtora pura de petróleo — feast or famine, sem colchão de outros negócios' },
+  }
+};
+
+function getConviction(assetId, type) {
+  return (type === 'crypto' ? CONVICTION.crypto[assetId] : CONVICTION.stocks[assetId]) || null;
+}
+
+function convictionBadge(assetId, type) {
+  const c = getConviction(assetId, type);
+  if (!c) return '';
+  if (c.tier === 'high') return `<span title="${c.why.replace(/"/g,'&quot;')}" style="cursor:help">🎯</span>`;
+  if (c.tier === 'satellite') return `<span title="${c.why.replace(/"/g,'&quot;')}" style="cursor:help">🛰️</span>`;
+  return `<span title="${c.why.replace(/"/g,'&quot;')}" style="cursor:help">⚠️</span>`;
+}
+
 let state = {
   watchlist: { crypto: [], stocks: [] },
   positions: {},
@@ -906,7 +942,7 @@ const UI = {
               <div class="card-icon">${p && p.image ? `<img src="${p.image}" alt="${coin.symbol}" loading="lazy">` : coin.symbol.slice(0,2).toUpperCase()}</div>
               <div>
                 <div class="card-name">${coin.name}</div>
-                <div class="card-ticker">${coin.symbol.toUpperCase()}</div>
+                <div class="card-ticker">${coin.symbol.toUpperCase()} ${convictionBadge(coin.id,'crypto')}</div>
               </div>
             </div>
             <div class="card-actions">
@@ -977,7 +1013,7 @@ const UI = {
               <div class="card-icon">${ticker.slice(0,2)}</div>
               <div>
                 <div class="card-name">${p ? p.name : ticker}</div>
-                <div class="card-ticker">${ticker}</div>
+                <div class="card-ticker">${ticker} ${convictionBadge(ticker,'stock')}</div>
               </div>
             </div>
             <div class="card-actions">
@@ -1038,8 +1074,10 @@ const UI = {
       const prob = opp.probability || 0;
       const probClass = prob >= 70 ? 'high' : prob >= 45 ? 'medium' : 'low';
       const probLabel = prob >= 75 ? 'Excelente' : prob >= 60 ? 'Bom' : prob >= 45 ? 'Razoável' : 'Fraco';
+      const isConvictionBuy = opp.type === 'buy' && (opp.conviction === 'high' || opp.conviction === 'satellite');
+      const convictionStyle = isConvictionBuy ? 'border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-glow)' : '';
       html += `
-        <div class="opp-item">
+        <div class="opp-item" style="${convictionStyle}">
           <div class="opp-dot ${dotClass}"></div>
           <div class="opp-text">
             <div class="opp-title">${opp.title}</div>
@@ -1118,17 +1156,22 @@ function detectOpportunities() {
     const sym = p.symbol.toUpperCase();
     const pos = state.positions[coin.id];
 
+    const conv = getConviction(coin.id, 'crypto');
+    const tier = conv ? conv.tier : 'speculative';
+    const isConviction = tier === 'high' || tier === 'satellite';
+
     const buyScore = calcBuyScore(p, dropThresh, pos);
     if (buyScore.total > 0) {
       const prob = buyScore.total;
-      const urgency = prob >= 70 ? '🚨 URGENTE!' : prob >= 55 ? '🟢' : '🔵';
+      const urgency = isConviction ? '🎯 EU COMPRARIA' : (prob >= 70 ? '🚨 URGENTE!' : prob >= 55 ? '🟢' : '🔵');
+      const tierNote = tier === 'speculative' ? ' — especulativo, não é minha convicção' : tier === 'satellite' ? ' — satélite, posição pequena' : '';
       const key = oppKey('buy', coin.id, 'score');
       const opp = {
-        key, type: 'buy', probability: prob,
-        title: `${urgency} Cenário de COMPRA para ${sym} — ${prob}% de confiança`,
-        desc: `${fmtBRL(p.price)} · ${buyScore.reasons.join(' · ')}`,
+        key, type: 'buy', probability: prob, conviction: tier,
+        title: `${urgency}: ${sym} — ${prob}% de confiança${tierNote}`,
+        desc: `${fmtBRL(p.price)} · ${buyScore.reasons.join(' · ')}${conv ? ' · ' + conv.why : ''}`,
         notification: `${urgency} ${sym} ${fmtBRL(p.price)} — ${prob}% de chance de boa compra! ${buyScore.reasons[0]}`,
-        time: 'agora', priority: prob
+        time: 'agora', priority: prob + (isConviction ? 10 : 0)
       };
       opps.push(opp);
       if (!notifiedOpps.has(key)) newSignals.push(opp);
@@ -1138,10 +1181,11 @@ function detectOpportunities() {
     if (sellScore.total > 0) {
       const prob = sellScore.total;
       const urgency = prob >= 70 ? '🚨 URGENTE!' : prob >= 55 ? '🔴' : '🟡';
+      const holdNote = tier === 'high' ? ' — sinal técnico de curto prazo; não muda minha tese de segurar' : '';
       const key = oppKey('sell', coin.id, 'score');
       const opp = {
-        key, type: 'sell', probability: prob,
-        title: `${urgency} Cenário de VENDA para ${sym} — ${prob}% de confiança`,
+        key, type: 'sell', probability: prob, conviction: tier,
+        title: `${urgency} Cenário de VENDA para ${sym} — ${prob}% de confiança${holdNote}`,
         desc: `${fmtBRL(p.price)} · ${sellScore.reasons.join(' · ')}`,
         notification: `${urgency} ${sym} ${fmtBRL(p.price)} — ${prob}% de chance de boa venda! ${sellScore.reasons[0]}`,
         time: 'agora', priority: prob
@@ -1198,17 +1242,22 @@ function detectOpportunities() {
     if (!p) continue;
     const pos = state.positions[ticker];
 
+    const conv = getConviction(ticker, 'stock');
+    const tier = conv ? conv.tier : 'speculative';
+    const isConviction = tier === 'high' || tier === 'satellite';
+
     const buyScore = calcStockBuyScore(p, dropThresh, pos);
     if (buyScore.total > 0) {
       const prob = buyScore.total;
-      const urgency = prob >= 70 ? '🚨 URGENTE!' : prob >= 55 ? '🟢' : '🔵';
+      const urgency = isConviction ? '🎯 EU COMPRARIA' : (prob >= 70 ? '🚨 URGENTE!' : prob >= 55 ? '🟢' : '🔵');
+      const tierNote = tier === 'speculative' ? ' — especulativo, não é minha convicção' : '';
       const key = oppKey('buy', ticker, 'score');
       const opp = {
-        key, type: 'buy', probability: prob,
-        title: `${urgency} Cenário de COMPRA para ${ticker} — ${prob}% de confiança`,
-        desc: `${p.name} a ${fmtBRL(p.price)} · ${buyScore.reasons.join(' · ')}`,
+        key, type: 'buy', probability: prob, conviction: tier,
+        title: `${urgency}: ${ticker} — ${prob}% de confiança${tierNote}`,
+        desc: `${p.name} a ${fmtBRL(p.price)} · ${buyScore.reasons.join(' · ')}${conv ? ' · ' + conv.why : ''}`,
         notification: `${urgency} ${ticker} ${fmtBRL(p.price)} — ${prob}% de chance de boa compra!`,
-        time: 'agora', priority: prob
+        time: 'agora', priority: prob + (isConviction ? 10 : 0)
       };
       opps.push(opp);
       if (!notifiedOpps.has(key)) newSignals.push(opp);
@@ -1218,10 +1267,11 @@ function detectOpportunities() {
     if (sellScore.total > 0) {
       const prob = sellScore.total;
       const urgency = prob >= 70 ? '🚨 URGENTE!' : prob >= 55 ? '🔴' : '🟡';
+      const holdNote = tier === 'high' ? ' — sinal técnico de curto prazo; não muda minha tese de segurar' : '';
       const key = oppKey('sell', ticker, 'score');
       const opp = {
-        key, type: 'sell', probability: prob,
-        title: `${urgency} Cenário de VENDA para ${ticker} — ${prob}% de confiança`,
+        key, type: 'sell', probability: prob, conviction: tier,
+        title: `${urgency} Cenário de VENDA para ${ticker} — ${prob}% de confiança${holdNote}`,
         desc: `${p.name} a ${fmtBRL(p.price)} · ${sellScore.reasons.join(' · ')}`,
         notification: `${urgency} ${ticker} ${fmtBRL(p.price)} — ${prob}% de chance de boa venda!`,
         time: 'agora', priority: prob
@@ -1268,17 +1318,25 @@ function detectOpportunities() {
   for (const opp of newSignals) {
     notifiedOpps.add(opp.key);
     showToast({ type: opp.type, title: opp.title, msg: opp.desc });
-    if (state.settings.notifications && 'Notification' in window && Notification.permission === 'granted') {
+
+    // Alertas de verdade, não ruído: sinais de VENDA/prejuízo/lucro são sobre a SUA posição,
+    // então sempre avisam. Sinais de COMPRA só disparam notificação de verdade quando são
+    // de um ativo de convicção (🎯/🛰️) ou quando o sinal técnico é forte demais pra ignorar.
+    const shouldPush = opp.type !== 'buy'
+      ? true
+      : (opp.conviction === 'high' || opp.conviction === 'satellite' || opp.probability >= 65);
+
+    if (shouldPush && state.settings.notifications && 'Notification' in window && Notification.permission === 'granted') {
       try {
-        const n = new Notification(`${opp.probability}% — ${opp.title.replace(/[🟢🔴🚨🟡🔵⚡💎📉📈]/g, '').trim()}`, {
+        const n = new Notification(`${opp.probability}% — ${opp.title.replace(/[🎯🛰️🟢🔴🚨🟡🔵⚡💎📉📈]/g, '').trim()}`, {
           body: opp.notification, tag: opp.key,
-          requireInteraction: opp.probability >= 60, silent: false
+          requireInteraction: opp.probability >= 60 || opp.conviction === 'high', silent: false
         });
         n.onclick = () => { window.focus(); n.close(); };
       } catch (e) {}
     }
-    if (state.settings.sound) {
-      if (opp.probability >= 70) playUrgentBeep();
+    if (shouldPush && state.settings.sound) {
+      if (opp.probability >= 70 || opp.conviction === 'high') playUrgentBeep();
       else if (opp.probability >= 45) playBeep();
     }
   }
@@ -1732,11 +1790,11 @@ function renderPopular() {
   const stockDiv = document.getElementById('stock-popular');
   const watchIds = new Set(state.watchlist.crypto.map(c => c.id));
   cryptoDiv.innerHTML = POPULAR_CRYPTOS.map(c => `
-    <button class="btn btn-ghost btn-sm" onclick="addCrypto('${c.id}','${c.symbol}','${c.name}')" ${watchIds.has(c.id) ? 'disabled style="opacity:.4"' : ''}>${c.symbol.toUpperCase()}</button>
+    <button class="btn btn-ghost btn-sm" onclick="addCrypto('${c.id}','${c.symbol}','${c.name}')" ${watchIds.has(c.id) ? 'disabled style="opacity:.4"' : ''}>${c.symbol.toUpperCase()} ${convictionBadge(c.id,'crypto')}</button>
   `).join('');
   const watchTickers = new Set(state.watchlist.stocks);
   stockDiv.innerHTML = POPULAR_STOCKS.map(t => `
-    <button class="btn btn-ghost btn-sm" onclick="state.watchlist.stocks.push('${t}');saveState();refreshData();renderPopular();" ${watchTickers.has(t) ? 'disabled style="opacity:.4"' : ''}>${t}</button>
+    <button class="btn btn-ghost btn-sm" onclick="state.watchlist.stocks.push('${t}');saveState();refreshData();renderPopular();" ${watchTickers.has(t) ? 'disabled style="opacity:.4"' : ''}>${t} ${convictionBadge(t,'stock')}</button>
   `).join('');
 }
 
@@ -1907,8 +1965,9 @@ document.getElementById('stock-input').addEventListener('keydown', e => {
   UI.renderAlerts();
 
   if (!state.watchlist.crypto.length && !state.watchlist.stocks.length) {
-    state.watchlist.crypto = POPULAR_CRYPTOS.map(c => ({ id: c.id, symbol: c.symbol, name: c.name }));
-    state.watchlist.stocks = [...POPULAR_STOCKS];
+    const curatedCryptoIds = Object.keys(CONVICTION.crypto);
+    state.watchlist.crypto = POPULAR_CRYPTOS.filter(c => curatedCryptoIds.includes(c.id));
+    state.watchlist.stocks = Object.keys(CONVICTION.stocks);
     state.settings.dropThreshold = 3;
     state.settings.riseThreshold = 8;
     saveState();
