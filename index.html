@@ -1271,14 +1271,10 @@ function calcMomentum(prices) {
 const UI = {
   renderCryptoCards() {
     const grid = document.getElementById('crypto-grid');
-    const empty = document.getElementById('crypto-empty');
     if (!state.watchlist.crypto.length) {
-      grid.innerHTML = '';
-      grid.appendChild(empty);
-      empty.hidden = false;
+      grid.innerHTML = `<div class="empty-state"><div class="emoji">🪙</div><p>Carregando criptomoedas...</p></div>`;
       return;
     }
-    empty.hidden = true;
 
     let html = '';
     for (const coin of state.watchlist.crypto) {
@@ -1343,14 +1339,10 @@ const UI = {
 
   renderStockCards() {
     const grid = document.getElementById('stocks-grid');
-    const empty = document.getElementById('stocks-empty');
     if (!state.watchlist.stocks.length) {
-      grid.innerHTML = '';
-      grid.appendChild(empty);
-      empty.hidden = false;
+      grid.innerHTML = `<div class="empty-state"><div class="emoji">📈</div><p>Ações selecionadas por convicção, não popularidade</p><p style="font-size:.78rem">Configure seu token gratuito da <a href="https://brapi.dev" target="_blank" rel="noopener">brapi.dev</a> em ⚙️ Config para ver cotações</p></div>`;
       return;
     }
-    empty.hidden = true;
 
     let html = '';
     for (const ticker of state.watchlist.stocks) {
@@ -1432,16 +1424,12 @@ const UI = {
 
   renderOpportunities() {
     const list = document.getElementById('opps-list');
-    const empty = document.getElementById('opps-empty');
     const badge = document.getElementById('opp-badge');
     if (!state.opportunities.length) {
-      list.innerHTML = '';
-      list.appendChild(empty);
-      empty.hidden = false;
+      list.innerHTML = `<div class="opp-empty"><div class="emoji">📡</div><p>Radar escaneando o mercado...</p><p style="font-size:.78rem">Monitorando as principais criptos e ações. Oportunidades aparecem aqui automaticamente.</p></div>`;
       badge.hidden = true;
       return;
     }
-    empty.hidden = true;
     badge.textContent = state.opportunities.length;
     badge.hidden = false;
     let html = '';
@@ -1491,12 +1479,9 @@ const UI = {
     badge.textContent = triggered;
     badge.hidden = triggered === 0;
     if (!state.alerts.length) {
-      list.innerHTML = '';
-      list.appendChild(empty);
-      empty.hidden = false;
+      list.innerHTML = `<div class="empty-state"><div class="emoji">⏰</div><p>Nenhum alerta criado</p><p style="font-size:.78rem">Crie alertas para ser notificado quando o preço atingir seu alvo</p></div>`;
       return;
     }
-    empty.hidden = true;
     let html = '';
     for (const alert of state.alerts) {
       const condText = {
