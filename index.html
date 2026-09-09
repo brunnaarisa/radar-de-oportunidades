@@ -400,6 +400,15 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
       <span class="ticker-value" id="tick-fg">--</span>
       <span class="ticker-change" id="tick-fg-label">--</span>
     </div>
+    <div class="ticker-item" id="tick-dom-wrap" hidden>
+      <span class="ticker-label">₿ BTC Dom</span>
+      <span class="ticker-value" id="tick-dom">--</span>
+      <span class="ticker-change" id="tick-dom-mcap">--</span>
+    </div>
+    <div class="ticker-item" id="tick-accuracy-wrap" hidden>
+      <span class="ticker-label">🎯 Acurácia</span>
+      <span class="ticker-value" id="tick-accuracy">--</span>
+    </div>
     <div class="ticker-item">
       <span class="ticker-label">Atualizado</span>
       <span class="ticker-value" id="tick-time">--:--</span>
@@ -457,6 +466,11 @@ select.form-input{-webkit-appearance:none;appearance:none;background-image:url("
         </div>
       </div>
       <div class="fg-hint" id="fg-hint"></div>
+    </div>
+
+    <div class="fg-card" id="accuracy-card" hidden>
+      <h3>🎯 Acurácia dos Sinais</h3>
+      <div id="accuracy-content"></div>
     </div>
 
     <div class="cards-header">
@@ -880,6 +894,8 @@ let state = {
   prices: { crypto: {}, stocks: {} },
   opportunities: [],
   fearGreed: null,
+  btcDominance: null,
+  signalTracker: [], // rastreia acurácia dos sinais passados
   settings: {
     refreshInterval: 15,
     notifications: false,
@@ -1099,6 +1115,20 @@ const API = {
     } catch { return null; }
   },
 
+  // BTC Dominance: quando dominância sobe, altcoins tendem a cair
+  async fetchBTCDominance() {
+    try {
+      const data = await fetchJSON('https://api.coingecko.com/api/v3/global', 8000);
+      if (data && data.data && data.data.market_cap_percentage) {
+        const btcDom = data.data.market_cap_percentage.bitcoin;
+        const ethDom = data.data.market_cap_percentage.ethereum;
+        const totalMcapChange = data.data.market_cap_change_percentage_24h_usd;
+        return { btc: btcDom, eth: ethDom, totalMcapChange };
+      }
+      return null;
+    } catch { return null; }
+  },
+
   async searchCryptos(query) {
     if (!query || query.length < 2) return [];
     try {
@@ -1181,6 +1211,89 @@ function renderFearGreed() {
   const fgTickLabel = document.getElementById('tick-fg-label');
   fgTickLabel.textContent = label;
   fgTickLabel.style.color = color;
+
+  // BTC Dominance ticker
+  if (state.btcDominance) {
+    const dom = state.btcDominance;
+    document.getElementById('tick-dom-wrap').hidden = false;
+    document.getElementById('tick-dom').textContent = dom.btc.toFixed(1) + '%';
+    const mcapEl = document.getElementById('tick-dom-mcap');
+    if (dom.totalMcapChange != null) {
+      mcapEl.textContent = (dom.totalMcapChange >= 0 ? '+' : '') + dom.totalMcapChange.toFixed(1) + '% MC';
+      mcapEl.className = 'ticker-change ' + (dom.totalMcapChange >= 0 ? 'change-up' : 'change-down');
+    }
+  }
+
+  // Accuracy ticker
+  const acc = getSignalAccuracy();
+  if (acc) {
+    document.getElementById('tick-accuracy-wrap').hidden = false;
+    document.getElementById('tick-accuracy').textContent = acc.hitRate + '%';
+    document.getElementById('tick-accuracy').style.color = acc.hitRate >= 65 ? 'var(--gain)' : acc.hitRate >= 45 ? 'var(--warn)' : 'var(--loss)';
+  }
+}
+
+function renderAccuracy() {
+  const card = document.getElementById('accuracy-card');
+  const content = document.getElementById('accuracy-content');
+  const acc = getSignalAccuracy();
+  if (!acc) {
+    // Mostra quantos sinais estão pendentes
+    const pending = state.signalTracker.filter(s => s.result === null).length;
+    if (pending > 0) {
+      card.hidden = false;
+      content.innerHTML = `<div style="text-align:center;padding:8px 0;color:var(--text-muted);font-size:.82rem">
+        ⏳ ${pending} sinal${pending > 1 ? 'is' : ''} em observação — resultados em 24h
+      </div>`;
+    } else { card.hidden = true; }
+    return;
+  }
+  card.hidden = false;
+  const hitColor = acc.hitRate >= 65 ? 'var(--gain)' : acc.hitRate >= 45 ? 'var(--warn)' : 'var(--loss)';
+  const recentColor = acc.recentHit >= 65 ? 'var(--gain)' : acc.recentHit >= 45 ? 'var(--warn)' : 'var(--loss)';
+  let statsHtml = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+      <div style="flex:1;min-width:90px;text-align:center">
+        <div style="font-size:1.8rem;font-weight:700;color:${hitColor}">${acc.hitRate}%</div>
+        <div style="font-size:.7rem;color:var(--text-muted)">TAXA DE ACERTO</div>
+        <div style="font-size:.65rem;color:var(--text-muted)">${acc.total} sinais verificados</div>
+      </div>
+      <div style="flex:1;min-width:90px;text-align:center">
+        <div style="font-size:1.8rem;font-weight:700;color:${recentColor}">${acc.recentHit}%</div>
+        <div style="font-size:.7rem;color:var(--text-muted)">ÚLTIMOS 10</div>
+        <div style="font-size:.65rem;color:var(--text-muted)">Tendência recente</div>
+      </div>`;
+  if (acc.avgReturn > 0) {
+    statsHtml += `
+      <div style="flex:1;min-width:90px;text-align:center">
+        <div style="font-size:1.8rem;font-weight:700;color:var(--gain)">+${acc.avgReturn}%</div>
+        <div style="font-size:.7rem;color:var(--text-muted)">RETORNO MÉDIO</div>
+        <div style="font-size:.65rem;color:var(--text-muted)">Dos sinais que acertaram</div>
+      </div>`;
+  }
+  statsHtml += `</div>`;
+  // Buy vs Sell breakdown
+  if (acc.buyHit !== null || acc.sellHit !== null) {
+    statsHtml += `<div style="display:flex;gap:8px;font-size:.75rem;justify-content:center">`;
+    if (acc.buyHit !== null) statsHtml += `<span style="color:var(--gain)">🟢 Compra: ${acc.buyHit}%</span>`;
+    if (acc.sellHit !== null) statsHtml += `<span style="color:var(--loss)">🔴 Venda: ${acc.sellHit}%</span>`;
+    statsHtml += `</div>`;
+  }
+  // Últimos sinais como mini timeline
+  if (acc.recent.length > 0) {
+    statsHtml += `<div style="display:flex;gap:3px;justify-content:center;margin-top:8px" title="Últimos ${acc.recent.length} sinais">`;
+    for (const sig of acc.recent) {
+      const emoji = sig.result ? '✅' : '❌';
+      const tip = `${sig.symbol} ${sig.type === 'buy' ? '↑' : '↓'} ${sig.resultPct > 0 ? '+' : ''}${sig.resultPct}%`;
+      statsHtml += `<span title="${tip}" style="font-size:.85rem;cursor:help">${emoji}</span>`;
+    }
+    statsHtml += `</div>`;
+  }
+  const pending = state.signalTracker.filter(s => s.result === null).length;
+  if (pending > 0) {
+    statsHtml += `<div style="text-align:center;margin-top:6px;font-size:.68rem;color:var(--text-muted)">⏳ ${pending} sinal${pending > 1 ? 'is' : ''} pendente${pending > 1 ? 's' : ''} (aguardando 24h)</div>`;
+  }
+  content.innerHTML = statsHtml;
 }
 
 /* ===== WHATSAPP SHARE ===== */
@@ -1661,6 +1774,99 @@ function oppKey(type, asset, signal) {
   return `${day}:${type}:${asset}:${signal}`;
 }
 
+/* ===== SIGNAL ACCURACY TRACKER =====
+   Registra cada sinal com o preço na hora, depois verifica se o preço
+   foi na direção certa dentro de 24h, 48h e 7d.
+   Isso permite mostrar a taxa de acerto real do sistema. */
+function loadSignalTracker() {
+  try {
+    const raw = localStorage.getItem('radar_signal_tracker');
+    if (raw) state.signalTracker = JSON.parse(raw);
+  } catch(e) { state.signalTracker = []; }
+}
+function saveSignalTracker() {
+  try {
+    // Mantém máximo 200 sinais (últimos ~2 meses)
+    if (state.signalTracker.length > 200) state.signalTracker = state.signalTracker.slice(-200);
+    localStorage.setItem('radar_signal_tracker', JSON.stringify(state.signalTracker));
+  } catch(e) {}
+}
+
+function trackSignal(opp) {
+  // Extrai o asset ID do key (formato: "2026-09-09:buy:bitcoin:score")
+  const parts = opp.key.split(':');
+  const assetId = parts[2];
+  const type = opp.type; // 'buy' ou 'sell'
+  // Busca preço atual do ativo
+  const p = state.prices.crypto[assetId] || state.prices.stocks[assetId];
+  if (!p || !p.price) return;
+  // Evita duplicatas (mesmo ativo + tipo no mesmo dia)
+  const today = new Date().toISOString().slice(0, 10);
+  const exists = state.signalTracker.some(s => s.asset === assetId && s.type === type && s.date === today);
+  if (exists) return;
+  state.signalTracker.push({
+    date: today,
+    asset: assetId,
+    symbol: p.symbol?.toUpperCase() || assetId,
+    type,
+    probability: opp.probability,
+    priceAtSignal: p.price,
+    result: null,    // null = pendente, true = acertou, false = errou
+    resultPct: null, // variação % desde o sinal
+    checkedAt: null
+  });
+  saveSignalTracker();
+}
+
+function updateSignalTracker() {
+  const now = Date.now();
+  let changed = false;
+  for (const sig of state.signalTracker) {
+    // Só verifica sinais pendentes com pelo menos 24h
+    if (sig.result !== null) continue;
+    const signalTime = new Date(sig.date).getTime();
+    const hoursSince = (now - signalTime) / (1000 * 60 * 60);
+    if (hoursSince < 24) continue;
+    // Busca preço atual
+    const p = state.prices.crypto[sig.asset] || state.prices.stocks[sig.asset];
+    if (!p || !p.price) continue;
+    const pctChange = ((p.price - sig.priceAtSignal) / sig.priceAtSignal) * 100;
+    sig.resultPct = Math.round(pctChange * 10) / 10;
+    sig.checkedAt = new Date().toISOString().slice(0, 10);
+    // Acertou se:
+    // - Sinal de COMPRA e preço subiu ≥1%
+    // - Sinal de VENDA e preço caiu ≥1%
+    if (sig.type === 'buy') sig.result = pctChange >= 1;
+    else sig.result = pctChange <= -1;
+    changed = true;
+  }
+  if (changed) saveSignalTracker();
+}
+
+function getSignalAccuracy() {
+  const resolved = state.signalTracker.filter(s => s.result !== null);
+  if (resolved.length < 3) return null; // precisa de pelo menos 3 sinais pra mostrar stats
+  const correct = resolved.filter(s => s.result === true);
+  const hitRate = (correct.length / resolved.length) * 100;
+  // Stats por tipo
+  const buySignals = resolved.filter(s => s.type === 'buy');
+  const sellSignals = resolved.filter(s => s.type === 'sell');
+  const buyHit = buySignals.length >= 2 ? (buySignals.filter(s => s.result).length / buySignals.length * 100) : null;
+  const sellHit = sellSignals.length >= 2 ? (sellSignals.filter(s => s.result).length / sellSignals.length * 100) : null;
+  // Média de retorno dos acertos
+  const avgReturn = correct.length > 0 ? correct.reduce((sum, s) => sum + Math.abs(s.resultPct), 0) / correct.length : 0;
+  // Últimos 10 sinais
+  const recent = resolved.slice(-10);
+  const recentHit = (recent.filter(s => s.result).length / recent.length * 100);
+  return {
+    total: resolved.length, pending: state.signalTracker.filter(s => s.result === null).length,
+    hitRate: Math.round(hitRate), buyHit: buyHit !== null ? Math.round(buyHit) : null,
+    sellHit: sellHit !== null ? Math.round(sellHit) : null,
+    avgReturn: Math.round(avgReturn * 10) / 10, recentHit: Math.round(recentHit),
+    recent
+  };
+}
+
 function detectOpportunities() {
   const opps = [];
   const dropThresh = state.settings.dropThreshold;
@@ -1891,11 +2097,12 @@ function detectOpportunities() {
     addToHistory(opp);
     showToast({ type: opp.type, title: opp.title, msg: opp.desc });
 
+    // Registra sinal no tracker de acurácia (só sinais ≥45%)
+    if (opp.probability >= 45 && (opp.type === 'buy' || opp.type === 'sell')) {
+      trackSignal(opp);
+    }
+
     // Notificação push: só sinais fortes (≥60%).
-    // Sinal ≥75% = notificação urgente com som forte.
-    // Sinal 60-74% = notificação normal.
-    // Stop loss/take profit sobre SUA posição: sempre avisa se ≥55%.
-    // Abaixo de 60% NÃO notifica — aparece na tela mas não interrompe.
     const isPositionAlert = opp.key.includes(':loss:') || opp.key.includes(':profit:');
     const minPushThreshold = isPositionAlert ? 55 : 60;
     const shouldPush = opp.probability >= minPushThreshold;
@@ -1911,6 +2118,9 @@ function detectOpportunities() {
       else playBeep();
     }
   }
+
+  // Atualiza tracker com preços atuais
+  updateSignalTracker();
 
   try { localStorage.setItem('radar_notified', JSON.stringify([...notifiedOpps])); } catch(e) {}
 }
@@ -2058,6 +2268,27 @@ function calcBuyScore(p, dropThresh, pos) {
     else if (fg >= 60) { score -= 3; }
   }
 
+  // === BTC DOMINÂNCIA (só para altcoins) ===
+  if (state.btcDominance && p.id !== 'bitcoin') {
+    const dom = state.btcDominance;
+    // Dominância BTC alta e subindo = ruim pra altcoins (dinheiro saindo de alts pro BTC)
+    if (dom.btc > 60) { score -= 5; reasons.push(`⚠️ BTC dominância alta (${dom.btc.toFixed(1)}%) — dinheiro saindo de alts`); confluenceSignals.push(-1); }
+    // Mercado inteiro caindo forte = macro bearish, mas pode ser oportunidade
+    if (dom.totalMcapChange != null && dom.totalMcapChange < -5) {
+      score += 4; reasons.push(`Mercado inteiro caindo ${Math.abs(dom.totalMcapChange).toFixed(1)}% — possível capitulação geral`);
+    }
+  }
+
+  // === VOLUME vs MÉDIA (sparkline como proxy) ===
+  if (p.sparkline && p.sparkline.length > 48 && p.volume24h && p.marketCap) {
+    // Estima volume médio como % do market cap nos últimos dias
+    const volRatio = p.volume24h / p.marketCap;
+    // Se volume hoje é 2x+ a média, é anormal
+    if (volRatio > 0.20 && p.change24h < 0) {
+      score += 5; reasons.push(`Volume ${(volRatio*100).toFixed(0)}% do MC — muito acima do normal`);
+    }
+  }
+
   // === POSIÇÃO DO USUÁRIO ===
   if (pos && pos.buyPrice && p.price) {
     const pnlPct = ((p.price - pos.buyPrice) / pos.buyPrice) * 100;
@@ -2197,6 +2428,15 @@ function calcSellScore(p, riseThresh, pos) {
     else if (fg >= 60) { score += 3; }
     else if (fg <= 20) { score -= 10; reasons.push(`⚠️ Pânico (${fg}/100) — vender agora é vender fundo`); confluenceSignals.push(-1); }
     else if (fg <= 35) { score -= 5; reasons.push(`Medo (${fg}/100) — cuidado ao vender`); confluenceSignals.push(-1); }
+  }
+
+  // === BTC DOMINÂNCIA (para altcoins: dominância caindo = bom pra alts) ===
+  if (state.btcDominance && p.id !== 'bitcoin') {
+    const dom = state.btcDominance;
+    if (dom.btc < 45) { score += 4; reasons.push(`BTC dominância baixa (${dom.btc.toFixed(1)}%) — bom momento pra vender alts no topo`); }
+    if (dom.totalMcapChange != null && dom.totalMcapChange > 5) {
+      score += 3; reasons.push(`Mercado subindo ${dom.totalMcapChange.toFixed(1)}% — euforia geral`);
+    }
   }
 
   // === POSIÇÃO DO USUÁRIO ===
@@ -2494,7 +2734,7 @@ async function refreshData() {
       }
     }
     try {
-      const [cdi, usd, fg] = await Promise.all([API.fetchCDI(), API.fetchUSD(), API.fetchFearGreed()]);
+      const [cdi, usd, fg, btcDom] = await Promise.all([API.fetchCDI(), API.fetchUSD(), API.fetchFearGreed(), API.fetchBTCDominance()]);
       if (cdi != null) document.getElementById('tick-cdi').textContent = cdi.toFixed(2) + '% a.a.';
       if (usd) {
         document.getElementById('tick-usd').textContent = 'R$ ' + usd.value.toFixed(4);
@@ -2503,12 +2743,14 @@ async function refreshData() {
         usdEl.className = 'ticker-change ' + (usd.change >= 0 ? 'change-up' : 'change-down');
       }
       if (fg) { state.fearGreed = fg; debugLog(`Fear&Greed: ${fg.value} (${fg.label})`); }
-      debugLog('BCB/F&G: ok');
+      if (btcDom) { state.btcDominance = btcDom; debugLog(`BTC Dom: ${btcDom.btc.toFixed(1)}% | Mercado 24h: ${btcDom.totalMcapChange?.toFixed(1)}%`); }
+      debugLog('BCB/F&G/Dom: ok');
     } catch (e) { debugLog(`BCB/F&G ERRO: ${e.message}`); }
     try { UI.renderCryptoCards(); } catch (e) { debugLog(`render crypto ERRO: ${e.message}`); }
     try { UI.renderStockCards(); } catch (e) { debugLog(`render stocks ERRO: ${e.message}`); }
     try { UI.renderTicker(); } catch (e) { debugLog(`render ticker ERRO: ${e.message}`); }
     try { renderFearGreed(); } catch (e) { debugLog(`render F&G ERRO: ${e.message}`); }
+    try { renderAccuracy(); } catch (e) { debugLog(`render accuracy ERRO: ${e.message}`); }
     try { detectOpportunities(); } catch (e) { debugLog(`detectOpps ERRO: ${e.message}`); }
     try { checkAlerts(); } catch (e) { debugLog(`checkAlerts ERRO: ${e.message}`); }
     try { renderHistory(); } catch (e) { debugLog(`render history ERRO: ${e.message}`); }
@@ -2901,6 +3143,7 @@ window.addEventListener('error', e => {
   debugLog('init: carregando state...');
   loadState();
   loadNotifiedOpps();
+  loadSignalTracker();
   applyTheme();
   loadSettings();
   renderPopular();
