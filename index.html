@@ -1203,14 +1203,10 @@ function addToHistory(opp) {
 
 function renderHistory() {
   const list = document.getElementById('history-list');
-  const empty = document.getElementById('history-empty');
   if (!state.alertHistory.length) {
-    list.innerHTML = '';
-    list.appendChild(empty);
-    empty.hidden = false;
+    list.innerHTML = '<div class="empty-state"><div class="emoji">📋</div><p>Nenhum alerta registrado ainda</p><p style="font-size:.78rem">Os alertas disparados serão salvos aqui para você acompanhar o histórico</p></div>';
     return;
   }
-  empty.hidden = true;
   let html = '';
   for (const h of state.alertHistory) {
     const icon = h.type === 'buy' ? '🟢' : h.type === 'sell' ? '🔴' : 'ℹ️';
