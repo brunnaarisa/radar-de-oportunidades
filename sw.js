@@ -1,4 +1,4 @@
-const CACHE_NAME = 'radar-v2';
+const CACHE_NAME = 'radar-v3';
 const SHELL_URLS = [
   './',
   './index.html',
@@ -101,6 +101,43 @@ function bgCalcBollingerB(prices) {
   return (prices[prices.length - 1] - lower) / (upper - lower);
 }
 
+// EMA Crossover simplificado para background (EMA 9 vs EMA 21)
+function bgCalcEMACrossover(prices) {
+  if (!prices || prices.length < 25) return null;
+  function ema(data, period) {
+    var k = 2 / (period + 1);
+    var val = 0;
+    for (var i = 0; i < period; i++) val += data[i];
+    val /= period;
+    for (var j = period; j < data.length; j++) { val = data[j] * k + val * (1 - k); }
+    return val;
+  }
+  // Calcula EMA atual e anterior (usando dados até penúltimo ponto)
+  var lastShort = ema(prices, 9);
+  var lastLong = ema(prices, 21);
+  var prevShort = ema(prices.slice(0, -1), 9);
+  var prevLong = ema(prices.slice(0, -1), 21);
+  var goldenCross = prevShort <= prevLong && lastShort > lastLong;
+  var deathCross = prevShort >= prevLong && lastShort < lastLong;
+  var trend = lastShort > lastLong ? 'bull' : 'bear';
+  return { goldenCross: goldenCross, deathCross: deathCross, trend: trend };
+}
+
+// Estocástico simplificado para background
+function bgCalcStochastic(prices, period) {
+  if (!prices || prices.length < (period || 14)) return null;
+  period = period || 14;
+  var data = prices.slice(-period);
+  var highest = data[0], lowest = data[0];
+  for (var i = 1; i < data.length; i++) {
+    if (data[i] > highest) highest = data[i];
+    if (data[i] < lowest) lowest = data[i];
+  }
+  if (highest === lowest) return null;
+  var current = prices[prices.length - 1];
+  return { k: ((current - lowest) / (highest - lowest)) * 100 };
+}
+
 async function checkPricesInBackground() {
   try {
     // Busca com sparkline para RSI/Bollinger
@@ -180,6 +217,26 @@ async function checkPricesInBackground() {
         }
       }
 
+      // EMA Crossover
+      if (sparkline.length >= 25) {
+        var emaCross = bgCalcEMACrossover(sparkline);
+        if (emaCross) {
+          if (emaCross.goldenCross) { buyScore += 12; buySignals++; }
+          else if (emaCross.trend === 'bull') { buyScore += 4; buySignals++; }
+          else if (emaCross.deathCross) { buyScore -= 8; buySignals--; }
+        }
+      }
+
+      // Estocástico
+      if (sparkline.length >= 14) {
+        var stoch = bgCalcStochastic(sparkline, 14);
+        if (stoch) {
+          if (stoch.k < 15) { buyScore += 8; buySignals++; }
+          else if (stoch.k < 25) { buyScore += 5; buySignals++; }
+          else if (stoch.k > 85) { buyScore -= 5; buySignals--; }
+        }
+      }
+
       // Fear & Greed
       if (fgVal <= 20) { buyScore += 10; buySignals++; }
       else if (fgVal <= 35) { buyScore += 5; }
@@ -187,7 +244,8 @@ async function checkPricesInBackground() {
       else if (fgVal >= 65) { buyScore -= 4; }
 
       // Confluência: bônus quando múltiplos indicadores concordam
-      if (buySignals >= 4) buyScore += 8;
+      if (buySignals >= 5) buyScore += 10;
+      else if (buySignals >= 4) buyScore += 8;
       else if (buySignals >= 3) buyScore += 5;
       else if (buySignals <= -2) buyScore -= 6;
 
@@ -202,6 +260,8 @@ async function checkPricesInBackground() {
         if (change24h <= -5) buyReasons.push('queda de ' + Math.abs(change24h).toFixed(1) + '%');
         if (rsi !== null && rsi < 30) buyReasons.push('RSI ' + Math.round(rsi));
         if (bb !== null && bb < 0.1) buyReasons.push('Bollinger sobrevendido');
+        if (emaCross && emaCross.goldenCross) buyReasons.push('Golden Cross');
+        if (stoch && stoch.k < 20) buyReasons.push('Estocástico ' + Math.round(stoch.k));
         if (fgVal <= 30) buyReasons.push('Fear ' + fgVal);
         alerts.push({
           title: '🚨 COMPRA ' + sym + ' (' + buyScore + '%) — ' + buySignals + ' indicadores',
@@ -248,13 +308,34 @@ async function checkPricesInBackground() {
         }
       }
 
+      // EMA Crossover (venda)
+      if (sparkline.length >= 25) {
+        var emaCrossS = bgCalcEMACrossover(sparkline);
+        if (emaCrossS) {
+          if (emaCrossS.deathCross) { sellScore += 12; sellSignals++; }
+          else if (emaCrossS.trend === 'bear') { sellScore += 4; sellSignals++; }
+          else if (emaCrossS.goldenCross) { sellScore -= 8; sellSignals--; }
+        }
+      }
+
+      // Estocástico (venda)
+      if (sparkline.length >= 14) {
+        var stochS = bgCalcStochastic(sparkline, 14);
+        if (stochS) {
+          if (stochS.k > 90) { sellScore += 8; sellSignals++; }
+          else if (stochS.k > 80) { sellScore += 5; sellSignals++; }
+          else if (stochS.k < 20) { sellScore -= 5; sellSignals--; }
+        }
+      }
+
       // Fear & Greed
       if (fgVal >= 80) { sellScore += 8; sellSignals++; }
       else if (fgVal >= 65) sellScore += 4;
       else if (fgVal <= 20) { sellScore -= 8; sellSignals--; }
 
       // Confluência
-      if (sellSignals >= 4) sellScore += 8;
+      if (sellSignals >= 5) sellScore += 10;
+      else if (sellSignals >= 4) sellScore += 8;
       else if (sellSignals >= 3) sellScore += 5;
 
       sellScore = Math.max(0, Math.min(95, sellScore));
