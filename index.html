@@ -834,6 +834,19 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
     swRegistration = reg;
     debugLog('Service Worker registrado');
+    // Periodic Background Sync: checar preços com app fechado (Chrome Android)
+    if ('periodicSync' in reg) {
+      navigator.permissions.query({ name: 'periodic-background-sync' }).then(perm => {
+        if (perm.state === 'granted') {
+          reg.periodicSync.register('check-prices', {
+            minInterval: 15 * 60 * 1000 // 15 minutos (navegador pode aumentar)
+          }).then(() => debugLog('Background Sync ativado (15min)'))
+            .catch(e => debugLog('Background Sync falhou: ' + e.message));
+        } else {
+          debugLog('Background Sync: sem permissão (' + perm.state + ')');
+        }
+      }).catch(() => debugLog('Background Sync: API indisponível'));
+    }
   }).catch(e => debugLog('SW falhou: ' + e.message));
 }
 
@@ -1741,22 +1754,24 @@ function detectOpportunities() {
     addToHistory(opp);
     showToast({ type: opp.type, title: opp.title, msg: opp.desc });
 
-    // Notificação push: venda/stop/lucro sempre avisam (são sobre SUA posição).
-    // Compra de ativo de convicção avisa sempre (é algo que eu recomendo acompanhar).
-    // Compra especulativa só avisa se o sinal for forte (≥65%) — senão é ruído.
-    const shouldPush = opp.type !== 'buy'
-      ? true
-      : (opp.conviction === 'high' || opp.conviction === 'satellite' || opp.probability >= 65);
+    // Notificação push: só sinais fortes (≥60%).
+    // Sinal ≥75% = notificação urgente com som forte.
+    // Sinal 60-74% = notificação normal.
+    // Stop loss/take profit sobre SUA posição: sempre avisa se ≥55%.
+    // Abaixo de 60% NÃO notifica — aparece na tela mas não interrompe.
+    const isPositionAlert = opp.key.includes(':loss:') || opp.key.includes(':profit:');
+    const minPushThreshold = isPositionAlert ? 55 : 60;
+    const shouldPush = opp.probability >= minPushThreshold;
 
     if (shouldPush && state.settings.notifications && 'Notification' in window && Notification.permission === 'granted') {
       sendNotification(`${opp.probability}% — ${opp.title.replace(/[\u{1F300}-\u{1FAFF}]/gu, '').trim()}`, {
         body: opp.notification, tag: opp.key,
-        requireInteraction: opp.probability >= 60 || opp.conviction === 'high', silent: false
+        requireInteraction: opp.probability >= 70, silent: false
       });
     }
     if (shouldPush && state.settings.sound) {
-      if (opp.probability >= 70 || opp.conviction === 'high') playUrgentBeep();
-      else if (opp.probability >= 45) playBeep();
+      if (opp.probability >= 75) playUrgentBeep();
+      else playBeep();
     }
   }
 
