@@ -819,13 +819,18 @@ function convictionBadge(assetId, type) {
   return `<span title="${c.why.replace(/"/g,'&quot;')}" style="cursor:help">⚠️</span>`;
 }
 
-/* Modo curto prazo: alvo/stop sugeridos por classe de ativo.
-   Cripto é mais volátil (negocia 24/7) — dá pra mirar mais alto.
-   Ação B3 só se move dentro do horário de pregão — alvo mais curto. */
-function suggestTargets(assetClass) {
-  return assetClass === 'crypto'
-    ? { target: '6–10%', stop: '4%' }
-    : { target: '3–5%', stop: '2,5%' };
+/* Alvos dinâmicos baseados na volatilidade real do ativo e condições de mercado.
+   Quanto maior a volatilidade, maior o alvo e o stop (proporcionalmente). */
+function suggestTargets(assetClass, coinId) {
+  if (assetClass === 'crypto') {
+    const mult = coinId ? getVolatilityMultiplier(coinId) : 1.3;
+    const baseTarget = 5, baseStop = 3;
+    const target = Math.round(baseTarget * mult);
+    const targetHigh = Math.round(target * 1.6);
+    const stop = Math.round(baseStop * mult);
+    return { target: `${target}–${targetHigh}%`, stop: `${stop}%` };
+  }
+  return { target: '3–5%', stop: '2,5%' };
 }
 
 // Service Worker pra notificações funcionarem no celular
@@ -1233,26 +1238,98 @@ function clearHistory() {
   showToast({ type: 'info', title: 'Histórico limpo', msg: 'Todos os alertas antigos foram removidos.' });
 }
 
-/* ===== RSI-LIKE CALCULATION FROM SPARKLINE ===== */
+/* ===== TECHNICAL ANALYSIS ENGINE ===== */
+
+// RSI com suavização exponencial de Wilder (mais preciso que SMA)
 function calcRSI(prices, period) {
   if (!prices || prices.length < period + 1) return null;
-  // Use last N+1 prices
-  const data = prices.slice(-(period + 1));
-  let gains = 0, losses = 0;
-  for (let i = 1; i < data.length; i++) {
+  const data = prices.slice(-(period * 3)); // usa mais dados para suavização
+  if (data.length < period + 1) return null;
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
     const diff = data[i] - data[i - 1];
-    if (diff > 0) gains += diff;
-    else losses -= diff;
+    if (diff > 0) avgGain += diff; else avgLoss -= diff;
   }
-  if (losses === 0) return 100;
-  const rs = (gains / period) / (losses / period);
+  avgGain /= period;
+  avgLoss /= period;
+  // Suavização exponencial (Wilder)
+  for (let i = period + 1; i < data.length; i++) {
+    const diff = data[i] - data[i - 1];
+    if (diff > 0) {
+      avgGain = (avgGain * (period - 1) + diff) / period;
+      avgLoss = (avgLoss * (period - 1)) / period;
+    } else {
+      avgGain = (avgGain * (period - 1)) / period;
+      avgLoss = (avgLoss * (period - 1) - diff) / period;
+    }
+  }
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
   return 100 - (100 / (1 + rs));
 }
 
-/* ===== MOMENTUM: check if recent trend is accelerating ===== */
+// MACD: detecta cruzamentos de tendência (sinal clássico de reversão)
+function calcMACD(prices) {
+  if (!prices || prices.length < 30) return null;
+  function ema(data, period) {
+    const k = 2 / (period + 1);
+    let val = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    const result = [val];
+    for (let i = period; i < data.length; i++) {
+      val = data[i] * k + val * (1 - k);
+      result.push(val);
+    }
+    return result;
+  }
+  const ema12 = ema(prices, 12);
+  const ema26 = ema(prices, 26);
+  // Alinha os arrays (ema26 começa mais tarde)
+  const offset = ema12.length - ema26.length;
+  if (offset < 0 || ema26.length < 2) return null;
+  const macdLine = [];
+  for (let i = 0; i < ema26.length; i++) {
+    macdLine.push(ema12[i + offset] - ema26[i]);
+  }
+  if (macdLine.length < 9) return null;
+  const signal = ema(macdLine, 9);
+  const macdOffset = macdLine.length - signal.length;
+  const lastMACD = macdLine[macdLine.length - 1];
+  const lastSignal = signal[signal.length - 1];
+  const prevMACD = macdLine[macdLine.length - 2];
+  const prevSignal = signal.length >= 2 ? signal[signal.length - 2] : lastSignal;
+  // Histograma: diferença entre MACD e Signal line
+  const histogram = lastMACD - lastSignal;
+  const prevHistogram = prevMACD - prevSignal;
+  // Cruzamento: MACD cruza signal de baixo pra cima = bullish
+  const bullishCross = prevMACD <= prevSignal && lastMACD > lastSignal;
+  const bearishCross = prevMACD >= prevSignal && lastMACD < lastSignal;
+  // Divergência: histograma diminuindo = tendência enfraquecendo
+  const diverging = Math.abs(histogram) > Math.abs(prevHistogram);
+  return { macd: lastMACD, signal: lastSignal, histogram, bullishCross, bearishCross, diverging, trend: lastMACD > lastSignal ? 'bull' : 'bear' };
+}
+
+// Bollinger Bands: identifica preços extremos em relação à média
+function calcBollinger(prices, period, mult) {
+  if (!prices || prices.length < period) return null;
+  period = period || 20;
+  mult = mult || 2;
+  const data = prices.slice(-period);
+  const mean = data.reduce((a, b) => a + b, 0) / data.length;
+  const variance = data.reduce((sum, v) => sum + (v - mean) ** 2, 0) / data.length;
+  const stdDev = Math.sqrt(variance);
+  const upper = mean + mult * stdDev;
+  const lower = mean - mult * stdDev;
+  const current = prices[prices.length - 1];
+  // %B: posição do preço relativo às bandas (0 = na lower, 1 = na upper, <0 = abaixo da lower)
+  const percentB = stdDev > 0 ? (current - lower) / (upper - lower) : 0.5;
+  // Bandwidth: largura relativa das bandas (bandas estreitas = volatilidade baixa, possível breakout)
+  const bandwidth = mean > 0 ? (upper - lower) / mean * 100 : 0;
+  return { upper, lower, mean, percentB, bandwidth, stdDev };
+}
+
+// Momentum melhorado: compara múltiplas janelas temporais
 function calcMomentum(prices) {
   if (!prices || prices.length < 10) return 0;
-  // Compare last 10% of data vs previous 10%
   const len = prices.length;
   const recentStart = Math.floor(len * 0.9);
   const midStart = Math.floor(len * 0.8);
@@ -1262,6 +1339,83 @@ function calcMomentum(prices) {
   const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
   const midAvg = mid.reduce((a, b) => a + b, 0) / mid.length;
   return ((recentAvg - midAvg) / midAvg) * 100;
+}
+
+// Detecta suportes e resistências a partir do sparkline
+function calcSupportResistance(prices) {
+  if (!prices || prices.length < 20) return null;
+  // Identifica pivôs locais (mínimos e máximos)
+  const supports = [], resistances = [];
+  const window = 5;
+  for (let i = window; i < prices.length - window; i++) {
+    let isLow = true, isHigh = true;
+    for (let j = 1; j <= window; j++) {
+      if (prices[i] > prices[i - j] || prices[i] > prices[i + j]) isLow = false;
+      if (prices[i] < prices[i - j] || prices[i] < prices[i + j]) isHigh = false;
+    }
+    if (isLow) supports.push(prices[i]);
+    if (isHigh) resistances.push(prices[i]);
+  }
+  const current = prices[prices.length - 1];
+  // Suportes abaixo do preço atual, resistências acima
+  const nearSupports = supports.filter(s => s < current).sort((a, b) => b - a);
+  const nearResistances = resistances.filter(r => r > current).sort((a, b) => a - b);
+  const nearestSupport = nearSupports[0] || null;
+  const nearestResistance = nearResistances[0] || null;
+  // Distância percentual ao suporte/resistência mais próximos
+  const distToSupport = nearestSupport ? ((current - nearestSupport) / nearestSupport) * 100 : null;
+  const distToResistance = nearestResistance ? ((nearestResistance - current) / current) * 100 : null;
+  return { nearestSupport, nearestResistance, distToSupport, distToResistance, supportCount: nearSupports.length, resistanceCount: nearResistances.length };
+}
+
+// Volatilidade histórica: ativo muito volátil precisa de thresholds maiores
+function calcVolatility(prices) {
+  if (!prices || prices.length < 10) return null;
+  const returns = [];
+  for (let i = 1; i < prices.length; i++) {
+    returns.push((prices[i] - prices[i-1]) / prices[i-1] * 100);
+  }
+  const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+  const variance = returns.reduce((sum, r) => sum + (r - mean) ** 2, 0) / returns.length;
+  return { stdDev: Math.sqrt(variance), avgReturn: mean, maxDrop: Math.min(...returns), maxRise: Math.max(...returns) };
+}
+
+// Multi-timeframe confirmation: 1h, 24h e 7d concordam na direção?
+function calcTimeframeAlignment(change1h, change24h, change7d) {
+  if (change1h == null || change24h == null) return { aligned: false, direction: 'neutral', strength: 0 };
+  const dirs = [
+    change1h > 0.3 ? 1 : change1h < -0.3 ? -1 : 0,
+    change24h > 0.5 ? 1 : change24h < -0.5 ? -1 : 0,
+    change7d != null ? (change7d > 1 ? 1 : change7d < -1 ? -1 : 0) : 0
+  ];
+  const sum = dirs.reduce((a, b) => a + b, 0);
+  const absSum = Math.abs(sum);
+  const aligned = absSum >= 2;
+  const direction = sum > 0 ? 'bull' : sum < 0 ? 'bear' : 'neutral';
+  return { aligned, direction, strength: absSum };
+}
+
+// Thresholds dinâmicos por ativo: alta volatilidade -> precisa de movimento maior pra ser sinal
+const VOLATILITY_TIERS = {
+  bitcoin: 1.0, ethereum: 1.1, solana: 1.4, binancecoin: 1.2,
+  ripple: 1.3, cardano: 1.4, dogecoin: 1.8, 'avalanche-2': 1.5,
+  sui: 1.6, chainlink: 1.4, pepe: 2.0, tron: 1.2,
+  polkadot: 1.5, 'shiba-inu': 2.0, litecoin: 1.3
+};
+function getVolatilityMultiplier(coinId) {
+  return VOLATILITY_TIERS[coinId] || 1.3;
+}
+
+// Conta indicadores confirmando a mesma direção (sistema de confluência)
+function calcConfluence(indicators) {
+  let bullish = 0, bearish = 0, total = 0;
+  for (const ind of indicators) {
+    if (ind === null || ind === undefined) continue;
+    total++;
+    if (ind > 0) bullish++;
+    else if (ind < 0) bearish++;
+  }
+  return { bullish, bearish, total, ratio: total > 0 ? Math.max(bullish, bearish) / total : 0 };
 }
 
 const UI = {
@@ -1433,7 +1587,9 @@ const UI = {
       const dotClass = opp.type === 'buy' ? 'buy' : opp.type === 'sell' ? 'sell' : opp.type === 'info' ? 'info' : 'neutral';
       const prob = opp.probability || 0;
       const probClass = prob >= 70 ? 'high' : prob >= 45 ? 'medium' : 'low';
-      const probLabel = prob >= 75 ? 'COMPRA AGORA' : prob >= 60 ? 'Bom momento' : prob >= 45 ? 'Atenção' : 'Só observando';
+      const probLabel = opp.type === 'sell'
+        ? (prob >= 75 ? 'VENDA AGORA' : prob >= 60 ? 'CONSIDERE VENDER' : prob >= 45 ? 'Atenção' : 'SÓ OBSERVANDO')
+        : (prob >= 75 ? 'COMPRA AGORA' : prob >= 60 ? 'BOM MOMENTO' : prob >= 45 ? 'Atenção' : 'SÓ OBSERVANDO');
       const isConvictionBuy = opp.type === 'buy' && (opp.conviction === 'high' || opp.conviction === 'satellite');
       const convictionStyle = isConvictionBuy ? 'border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-glow)' : '';
       const idx = state.opportunities.indexOf(opp);
@@ -1524,7 +1680,7 @@ function detectOpportunities() {
     const buyScore = calcBuyScore(p, dropThresh, pos);
     if (buyScore.total > 0) {
       const prob = buyScore.total;
-      const targets = suggestTargets('crypto');
+      const targets = suggestTargets('crypto', coin.id);
       const key = oppKey('buy', coin.id, 'score');
       // Combina qualidade do ativo + timing pra dar uma orientação clara
       let title, notif;
@@ -1762,71 +1918,169 @@ function detectOpportunities() {
 function calcBuyScore(p, dropThresh, pos) {
   let score = 0;
   const reasons = [];
-  if (p.change24h != null && p.change24h <= -dropThresh) {
+  const confluenceSignals = []; // +1 = bullish, -1 = bearish
+
+  // Threshold dinâmico: ativos mais voláteis precisam de quedas maiores pra ser sinal
+  const volMult = getVolatilityMultiplier(p.id);
+  const adjDrop = dropThresh * volMult;
+
+  // === PREÇO: Queda 24h ===
+  if (p.change24h != null && p.change24h <= -adjDrop) {
     const dropMag = Math.abs(p.change24h);
-    score += Math.min(30, 10 + (dropMag - dropThresh) * 2.5);
+    score += Math.min(25, 8 + (dropMag - adjDrop) * 2);
     reasons.push(`Queda de ${dropMag.toFixed(1)}% em 24h`);
+    confluenceSignals.push(1);
+  } else if (p.change24h != null && p.change24h > 0) {
+    confluenceSignals.push(-1); // subindo — não é hora de compra pela queda
   }
+
+  // === PREÇO: Movimento 1h ===
   if (p.change1h != null) {
-    if (p.change1h < -2) {
-      score += Math.min(25, 12 + Math.abs(p.change1h) * 1.5);
+    if (p.change1h < -2 * volMult) {
+      score += Math.min(20, 10 + Math.abs(p.change1h) * 1.2);
       reasons.push(`Caindo ${Math.abs(p.change1h).toFixed(1)}% agora (1h) — movimento fresco`);
-    } else if (p.change1h > 1.5) {
-      score += 10;
+      confluenceSignals.push(1);
+    } else if (p.change1h > 1.5 && p.change24h < -adjDrop) {
+      score += 8;
       reasons.push(`Recuperando ${p.change1h.toFixed(1)}% na última hora`);
+      confluenceSignals.push(1); // reversão em andamento
+    } else if (p.change1h > 2) {
+      confluenceSignals.push(-1);
     }
   }
+
+  // === PREÇO: Perto da mínima do dia ===
   if (p.low24h && p.price && p.low24h > 0) {
     const dist = ((p.price - p.low24h) / p.low24h) * 100;
-    if (dist < 1) { score += 15; reasons.push('Na mínima do dia!'); }
-    else if (dist < 3) { score += 10; reasons.push(`Perto da mínima (${dist.toFixed(1)}% acima)`); }
-    else if (dist < 5) { score += 5; reasons.push('Próximo da mínima do dia'); }
+    if (dist < 1) { score += 12; reasons.push('Na mínima do dia!'); confluenceSignals.push(1); }
+    else if (dist < 3) { score += 8; reasons.push(`Perto da mínima (${dist.toFixed(1)}% acima)`); }
+    else if (dist < 5) { score += 4; }
   }
+
+  // === TENDÊNCIA: 7 dias ===
   if (p.change7d != null) {
-    if (p.change7d < -15) { score += 10; reasons.push(`Semana vermelha: ${p.change7d.toFixed(1)}% em 7d`); }
-    else if (p.change7d < -8) { score += 6; reasons.push('Tendência de baixa em 7d'); }
-    else if (p.change7d > 5 && p.change24h < -dropThresh) { score += 8; reasons.push(`Flash crash? Semana +${p.change7d.toFixed(1)}% mas hoje despencou`); }
+    if (p.change7d < -15) { score += 8; reasons.push(`Semana vermelha: ${p.change7d.toFixed(1)}% em 7d`); confluenceSignals.push(1); }
+    else if (p.change7d < -8) { score += 5; reasons.push('Tendência de baixa em 7d'); }
+    else if (p.change7d > 5 && p.change24h != null && p.change24h < -adjDrop) { score += 7; reasons.push(`Flash crash? Semana +${p.change7d.toFixed(1)}% mas hoje despencou`); }
+    else if (p.change7d > 15) { confluenceSignals.push(-1); } // semana muito verde — cautela
   }
+
+  // === ATH distance ===
   if (p.athChange != null) {
-    if (p.athChange < -90) { score += 12; reasons.push(`${Math.abs(p.athChange).toFixed(0)}% abaixo do ATH — pechincha?`); }
-    else if (p.athChange < -70) { score += 10; reasons.push(`${Math.abs(p.athChange).toFixed(0)}% abaixo do ATH`); }
-    else if (p.athChange < -50) { score += 7; reasons.push('Metade do preço do ATH'); }
-    else if (p.athChange > -10) { score -= 10; reasons.push('⚠️ Perto do ATH — risco alto'); }
+    if (p.athChange < -90) { score += 10; reasons.push(`${Math.abs(p.athChange).toFixed(0)}% abaixo do ATH — pechincha?`); }
+    else if (p.athChange < -70) { score += 8; reasons.push(`${Math.abs(p.athChange).toFixed(0)}% abaixo do ATH`); }
+    else if (p.athChange < -50) { score += 5; }
+    else if (p.athChange > -10) { score -= 12; reasons.push('⚠️ Perto do ATH — risco alto de correção'); confluenceSignals.push(-1); }
   }
+
+  // === VOLUME ===
   if (p.volume24h && p.marketCap && p.marketCap > 0) {
     const volRatio = p.volume24h / p.marketCap;
-    if (volRatio > 0.15) { score += 10; reasons.push(`Volume explosivo (${(volRatio*100).toFixed(1)}% do market cap)`); }
-    else if (volRatio > 0.08) { score += 5; reasons.push('Volume acima do normal'); }
+    if (volRatio > 0.15 && p.change24h < 0) {
+      score += 10; reasons.push(`Volume explosivo na queda (${(volRatio*100).toFixed(1)}% do market cap) — capitulação?`);
+      confluenceSignals.push(1);
+    } else if (volRatio > 0.08 && p.change24h < 0) {
+      score += 5; reasons.push('Volume acima do normal na queda');
+    } else if (volRatio > 0.15 && p.change24h > 0) {
+      score -= 3; // volume alto com preço subindo = confirma a alta, ruim pra comprar
+    }
   }
-  // RSI do sparkline de 7 dias (14 períodos)
+
+  // === RSI (Wilder smoothing) ===
   if (p.sparkline && p.sparkline.length > 15) {
     const rsi = calcRSI(p.sparkline, 14);
     if (rsi !== null) {
-      if (rsi < 25) { score += 15; reasons.push(`RSI sobrevendido (${rsi.toFixed(0)}) — forte sinal de reversão`); }
-      else if (rsi < 35) { score += 10; reasons.push(`RSI baixo (${rsi.toFixed(0)}) — pode reverter`); }
-      else if (rsi > 75) { score -= 8; reasons.push(`⚠️ RSI sobrecomprado (${rsi.toFixed(0)}) — arriscado comprar agora`); }
+      if (rsi < 20) { score += 15; reasons.push(`RSI extremo (${rsi.toFixed(0)}) — sobrevendido forte`); confluenceSignals.push(1); }
+      else if (rsi < 30) { score += 10; reasons.push(`RSI sobrevendido (${rsi.toFixed(0)}) — sinal de reversão`); confluenceSignals.push(1); }
+      else if (rsi < 40) { score += 5; reasons.push(`RSI baixo (${rsi.toFixed(0)})`); }
+      else if (rsi > 70) { score -= 10; reasons.push(`⚠️ RSI sobrecomprado (${rsi.toFixed(0)}) — arriscado comprar`); confluenceSignals.push(-1); }
+      else if (rsi > 60) { score -= 3; confluenceSignals.push(-1); }
     }
   }
-  // Momentum do sparkline
+
+  // === MACD ===
+  if (p.sparkline && p.sparkline.length > 30) {
+    const macd = calcMACD(p.sparkline);
+    if (macd) {
+      if (macd.bullishCross) { score += 12; reasons.push('MACD cruzou pra cima — reversão técnica'); confluenceSignals.push(1); }
+      else if (macd.trend === 'bear' && !macd.diverging) { score += 5; reasons.push('MACD: tendência de baixa desacelerando'); confluenceSignals.push(1); }
+      else if (macd.bearishCross) { score -= 8; reasons.push('⚠️ MACD cruzou pra baixo — tendência caindo'); confluenceSignals.push(-1); }
+      else if (macd.trend === 'bull' && macd.diverging) { confluenceSignals.push(-1); }
+    }
+  }
+
+  // === BOLLINGER BANDS ===
+  if (p.sparkline && p.sparkline.length > 20) {
+    const bb = calcBollinger(p.sparkline, 20, 2);
+    if (bb) {
+      if (bb.percentB < 0) { score += 12; reasons.push(`Preço abaixo da Banda de Bollinger inferior — extremamente sobrevendido`); confluenceSignals.push(1); }
+      else if (bb.percentB < 0.1) { score += 8; reasons.push(`Preço na borda inferior de Bollinger (${(bb.percentB*100).toFixed(0)}%)`); confluenceSignals.push(1); }
+      else if (bb.percentB > 0.95) { score -= 8; reasons.push(`⚠️ Preço na borda superior de Bollinger`); confluenceSignals.push(-1); }
+      // Squeeze: bandas muito estreitas indicam breakout iminente
+      if (bb.bandwidth < 3) { score += 4; reasons.push('Bollinger apertado — possível breakout em breve'); }
+    }
+  }
+
+  // === SUPORTES / RESISTÊNCIAS ===
+  if (p.sparkline && p.sparkline.length > 20) {
+    const sr = calcSupportResistance(p.sparkline);
+    if (sr && sr.distToSupport != null) {
+      if (sr.distToSupport < 1) { score += 8; reasons.push('Perto de suporte técnico importante'); confluenceSignals.push(1); }
+      else if (sr.distToSupport < 3) { score += 4; reasons.push('Próximo de zona de suporte'); }
+    }
+  }
+
+  // === MOMENTUM ===
   if (p.sparkline && p.sparkline.length > 20) {
     const mom = calcMomentum(p.sparkline);
-    if (mom < -3) { score += 6; reasons.push('Momentum negativo acelerando — queda pode ser oportunidade'); }
-    else if (mom > 3 && p.change24h < -dropThresh) { score += 5; reasons.push('Momentum virando — pode estar revertendo'); }
+    if (mom < -3) { score += 5; reasons.push('Momentum negativo acelerando'); }
+    else if (mom > 3 && p.change24h != null && p.change24h < -adjDrop) { score += 6; reasons.push('Momentum virando — possível reversão'); confluenceSignals.push(1); }
   }
-  // Fear & Greed Index
+
+  // === MULTI-TIMEFRAME ALIGNMENT ===
+  const tf = calcTimeframeAlignment(p.change1h, p.change24h, p.change7d);
+  if (tf.aligned && tf.direction === 'bear' && tf.strength >= 3) {
+    score += 6; reasons.push('Queda confirmada em todas as janelas (1h, 24h, 7d)');
+    confluenceSignals.push(1);
+  } else if (tf.aligned && tf.direction === 'bull' && tf.strength >= 3) {
+    score -= 6; reasons.push('⚠️ Alta confirmada em todas as janelas — compra tardia');
+    confluenceSignals.push(-1);
+  }
+
+  // === FEAR & GREED INDEX ===
   if (state.fearGreed) {
     const fg = state.fearGreed.value;
-    if (fg <= 20) { score += 12; reasons.push(`Mercado em pânico (Medo: ${fg}/100) — hora de comprar?`); }
-    else if (fg <= 35) { score += 7; reasons.push(`Mercado com medo (${fg}/100) — bom pra compras`); }
-    else if (fg >= 80) { score -= 10; reasons.push(`⚠️ Mercado em euforia (${fg}/100) — cuidado ao comprar`); }
-    else if (fg >= 65) { score -= 5; reasons.push(`Ganância alta (${fg}/100) — cautela`); }
+    if (fg <= 15) { score += 12; reasons.push(`Pânico extremo (Medo: ${fg}/100) — hora de comprar`); confluenceSignals.push(1); }
+    else if (fg <= 25) { score += 8; reasons.push(`Mercado em pânico (${fg}/100) — bom pra compras`); confluenceSignals.push(1); }
+    else if (fg <= 40) { score += 4; reasons.push(`Mercado com medo (${fg}/100)`); }
+    else if (fg >= 85) { score -= 12; reasons.push(`⚠️ Euforia extrema (${fg}/100) — máximo cuidado`); confluenceSignals.push(-1); }
+    else if (fg >= 75) { score -= 8; reasons.push(`⚠️ Mercado em ganância (${fg}/100) — cautela`); confluenceSignals.push(-1); }
+    else if (fg >= 60) { score -= 3; }
   }
+
+  // === POSIÇÃO DO USUÁRIO ===
   if (pos && pos.buyPrice && p.price) {
     const pnlPct = ((p.price - pos.buyPrice) / pos.buyPrice) * 100;
-    if (pnlPct < -20) { score += 12; reasons.push(`${Math.abs(pnlPct).toFixed(0)}% abaixo da sua compra — média pra baixo?`); }
-    else if (pnlPct < -10) { score += 8; reasons.push(`${Math.abs(pnlPct).toFixed(0)}% abaixo da sua compra`); }
-    else if (pnlPct > 10) { score -= 5; reasons.push(`⚠️ Já com ${pnlPct.toFixed(0)}% de lucro — comprar mais aumenta exposição`); }
+    if (pnlPct < -25) { score += 10; reasons.push(`${Math.abs(pnlPct).toFixed(0)}% abaixo da sua compra — forte oportunidade de média`); }
+    else if (pnlPct < -15) { score += 7; reasons.push(`${Math.abs(pnlPct).toFixed(0)}% abaixo da sua compra`); }
+    else if (pnlPct < -8) { score += 4; reasons.push(`${Math.abs(pnlPct).toFixed(0)}% abaixo da compra`); }
+    else if (pnlPct > 15) { score -= 6; reasons.push(`⚠️ Já com ${pnlPct.toFixed(0)}% de lucro — comprar mais aumenta exposição`); }
   }
+
+  // === CONFLUÊNCIA: bônus/penalidade baseado em quantos indicadores concordam ===
+  const conf = calcConfluence(confluenceSignals);
+  if (conf.total >= 3) {
+    if (conf.bullish >= 4) {
+      score += 10; reasons.push(`📊 ${conf.bullish}/${conf.total} indicadores confirmam compra`);
+    } else if (conf.bullish >= 3 && conf.bearish <= 1) {
+      score += 6; reasons.push(`📊 ${conf.bullish}/${conf.total} indicadores positivos`);
+    } else if (conf.bearish >= 3) {
+      score -= 8; reasons.push(`⚠️ ${conf.bearish}/${conf.total} indicadores contra — sinal fraco`);
+    } else if (conf.bullish === conf.bearish) {
+      score -= 4; reasons.push(`📊 Sinais mistos (${conf.bullish} pró, ${conf.bearish} contra)`);
+    }
+  }
+
   score = Math.max(0, Math.min(95, Math.round(score)));
   if (score < 25) return { total: 0, reasons: [] };
   return { total: score, reasons };
@@ -1835,53 +2089,140 @@ function calcBuyScore(p, dropThresh, pos) {
 function calcSellScore(p, riseThresh, pos) {
   let score = 0;
   const reasons = [];
-  if (p.change24h != null && p.change24h >= riseThresh) {
+  const confluenceSignals = [];
+
+  const volMult = getVolatilityMultiplier(p.id);
+  const adjRise = riseThresh * volMult;
+
+  // === PREÇO: Alta 24h ===
+  if (p.change24h != null && p.change24h >= adjRise) {
     const riseMag = p.change24h;
-    score += Math.min(30, 10 + (riseMag - riseThresh) * 2);
+    score += Math.min(25, 8 + (riseMag - adjRise) * 2);
     reasons.push(`Alta de ${riseMag.toFixed(1)}% em 24h`);
+    confluenceSignals.push(1);
   }
+
+  // === PREÇO: Movimento 1h ===
   if (p.change1h != null) {
-    if (p.change1h > 2) { score += Math.min(25, 12 + p.change1h * 1.5); reasons.push(`Disparando ${p.change1h.toFixed(1)}% agora (1h) — pode ser hora de realizar`); }
-    else if (p.change1h < -1.5 && p.change24h > riseThresh) { score += 10; reasons.push('Revertendo após alta — possível topo'); }
+    if (p.change1h > 3 * volMult) {
+      score += Math.min(20, 10 + p.change1h * 1.2);
+      reasons.push(`Disparando ${p.change1h.toFixed(1)}% agora (1h) — possível topo`);
+      confluenceSignals.push(1);
+    } else if (p.change1h < -1.5 && p.change24h != null && p.change24h > adjRise) {
+      score += 10;
+      reasons.push('Revertendo após alta — possível topo');
+      confluenceSignals.push(1);
+    }
   }
+
+  // === PREÇO: Perto da máxima do dia ===
   if (p.high24h && p.price && p.high24h > 0) {
     const dist = ((p.high24h - p.price) / p.high24h) * 100;
-    if (dist < 1) { score += 15; reasons.push('Na máxima do dia!'); }
-    else if (dist < 3) { score += 10; reasons.push(`Perto da máxima (${dist.toFixed(1)}% abaixo)`); }
-    else if (dist < 5) { score += 5; }
+    if (dist < 1) { score += 12; reasons.push('Na máxima do dia!'); confluenceSignals.push(1); }
+    else if (dist < 3) { score += 8; reasons.push(`Perto da máxima (${dist.toFixed(1)}% abaixo)`); }
+    else if (dist < 5) { score += 4; }
   }
+
+  // === ATH ===
   if (p.athChange != null) {
-    if (p.athChange > -2) { score += 20; reasons.push('Praticamente no ATH! Zona de euforia'); }
-    else if (p.athChange > -5) { score += 15; reasons.push(`A ${Math.abs(p.athChange).toFixed(1)}% do recorde`); }
-    else if (p.athChange > -10) { score += 8; reasons.push('Próximo do ATH'); }
+    if (p.athChange > -2) { score += 18; reasons.push('Praticamente no ATH! Zona de euforia máxima'); confluenceSignals.push(1); }
+    else if (p.athChange > -5) { score += 12; reasons.push(`A ${Math.abs(p.athChange).toFixed(1)}% do recorde`); confluenceSignals.push(1); }
+    else if (p.athChange > -10) { score += 6; reasons.push('Próximo do ATH'); }
+    else if (p.athChange < -50) { confluenceSignals.push(-1); } // longe do ATH — não faz sentido vender
   }
+
+  // === TENDÊNCIA: 7 dias ===
   if (p.change7d != null) {
-    if (p.change7d > 30) { score += 10; reasons.push(`Semana absurda: +${p.change7d.toFixed(1)}% — bolha?`); }
+    if (p.change7d > 30) { score += 10; reasons.push(`Semana absurda: +${p.change7d.toFixed(1)}% — possível bolha`); confluenceSignals.push(1); }
     else if (p.change7d > 15) { score += 6; reasons.push(`Forte alta semanal: +${p.change7d.toFixed(1)}%`); }
+    else if (p.change7d < -10) { confluenceSignals.push(-1); } // semana vermelha — vender agora é vender fundo
   }
-  // RSI do sparkline de 7 dias
+
+  // === RSI ===
   if (p.sparkline && p.sparkline.length > 15) {
     const rsi = calcRSI(p.sparkline, 14);
     if (rsi !== null) {
-      if (rsi > 80) { score += 15; reasons.push(`RSI sobrecomprado (${rsi.toFixed(0)}) — forte sinal de venda`); }
-      else if (rsi > 70) { score += 8; reasons.push(`RSI alto (${rsi.toFixed(0)}) — pode corrigir`); }
-      else if (rsi < 30) { score -= 8; reasons.push(`⚠️ RSI sobrevendido (${rsi.toFixed(0)}) — arriscado vender agora`); }
+      if (rsi > 85) { score += 15; reasons.push(`RSI extremo (${rsi.toFixed(0)}) — sobrecomprado forte`); confluenceSignals.push(1); }
+      else if (rsi > 75) { score += 10; reasons.push(`RSI sobrecomprado (${rsi.toFixed(0)}) — sinal de venda`); confluenceSignals.push(1); }
+      else if (rsi > 65) { score += 4; }
+      else if (rsi < 30) { score -= 10; reasons.push(`⚠️ RSI sobrevendido (${rsi.toFixed(0)}) — arriscado vender agora`); confluenceSignals.push(-1); }
+      else if (rsi < 40) { score -= 4; confluenceSignals.push(-1); }
     }
   }
-  // Fear & Greed: euforia reforça venda
+
+  // === MACD ===
+  if (p.sparkline && p.sparkline.length > 30) {
+    const macd = calcMACD(p.sparkline);
+    if (macd) {
+      if (macd.bearishCross) { score += 10; reasons.push('MACD cruzou pra baixo — tendência virando'); confluenceSignals.push(1); }
+      else if (macd.trend === 'bull' && !macd.diverging) { score += 4; reasons.push('MACD: alta desacelerando'); }
+      else if (macd.bullishCross) { score -= 8; reasons.push('⚠️ MACD cruzou pra cima — pode subir mais'); confluenceSignals.push(-1); }
+    }
+  }
+
+  // === BOLLINGER BANDS ===
+  if (p.sparkline && p.sparkline.length > 20) {
+    const bb = calcBollinger(p.sparkline, 20, 2);
+    if (bb) {
+      if (bb.percentB > 1) { score += 12; reasons.push('Preço acima da Banda de Bollinger superior — extremamente esticado'); confluenceSignals.push(1); }
+      else if (bb.percentB > 0.9) { score += 8; reasons.push(`Preço na borda superior de Bollinger (${(bb.percentB*100).toFixed(0)}%)`); confluenceSignals.push(1); }
+      else if (bb.percentB < 0.1) { score -= 8; reasons.push('⚠️ Preço na borda inferior de Bollinger — não é hora de vender'); confluenceSignals.push(-1); }
+    }
+  }
+
+  // === RESISTÊNCIAS ===
+  if (p.sparkline && p.sparkline.length > 20) {
+    const sr = calcSupportResistance(p.sparkline);
+    if (sr && sr.distToResistance != null && sr.distToResistance < 1) {
+      score += 6; reasons.push('Perto de resistência técnica');
+      confluenceSignals.push(1);
+    }
+  }
+
+  // === MULTI-TIMEFRAME ===
+  const tf = calcTimeframeAlignment(p.change1h, p.change24h, p.change7d);
+  if (tf.aligned && tf.direction === 'bull' && tf.strength >= 3) {
+    score += 6; reasons.push('Alta confirmada em todas as janelas (1h, 24h, 7d)');
+    confluenceSignals.push(1);
+  } else if (tf.aligned && tf.direction === 'bear' && tf.strength >= 3) {
+    score -= 6; reasons.push('⚠️ Queda confirmada em todas as janelas — venda tardia');
+    confluenceSignals.push(-1);
+  }
+
+  // === FEAR & GREED ===
   if (state.fearGreed) {
     const fg = state.fearGreed.value;
-    if (fg >= 80) { score += 10; reasons.push(`Mercado em euforia (${fg}/100) — bom pra realizar`); }
-    else if (fg >= 65) { score += 5; reasons.push(`Ganância (${fg}/100) — considere lucros`); }
-    else if (fg <= 20) { score -= 8; reasons.push(`⚠️ Mercado em pânico (${fg}/100) — vender agora pode ser caro`); }
+    if (fg >= 85) { score += 12; reasons.push(`Euforia extrema (${fg}/100) — melhor hora pra vender`); confluenceSignals.push(1); }
+    else if (fg >= 75) { score += 8; reasons.push(`Mercado em ganância (${fg}/100) — bom pra realizar`); confluenceSignals.push(1); }
+    else if (fg >= 60) { score += 3; }
+    else if (fg <= 20) { score -= 10; reasons.push(`⚠️ Pânico (${fg}/100) — vender agora é vender fundo`); confluenceSignals.push(-1); }
+    else if (fg <= 35) { score -= 5; reasons.push(`Medo (${fg}/100) — cuidado ao vender`); confluenceSignals.push(-1); }
   }
+
+  // === POSIÇÃO DO USUÁRIO ===
   if (pos && pos.buyPrice && p.price) {
     const pnlPct = ((p.price - pos.buyPrice) / pos.buyPrice) * 100;
-    if (pnlPct >= 50) { score += 15; reasons.push(`Lucro de ${pnlPct.toFixed(0)}% desde sua compra!`); }
-    else if (pnlPct >= 20) { score += 10; reasons.push(`+${pnlPct.toFixed(0)}% desde compra — bom lucro`); }
-    else if (pnlPct >= 5) { score += 5; reasons.push(`+${pnlPct.toFixed(0)}% desde compra`); }
-    else if (pnlPct < -5) { score -= 10; reasons.push(`⚠️ Ainda com ${pnlPct.toFixed(0)}% de prejuízo — vender realiza perda`); }
+    if (pnlPct >= 50) { score += 15; reasons.push(`🎉 Lucro de ${pnlPct.toFixed(0)}% desde sua compra!`); }
+    else if (pnlPct >= 25) { score += 10; reasons.push(`+${pnlPct.toFixed(0)}% desde compra — excelente lucro`); }
+    else if (pnlPct >= 10) { score += 6; reasons.push(`+${pnlPct.toFixed(0)}% desde compra — bom lucro`); }
+    else if (pnlPct >= 3) { score += 3; }
+    else if (pnlPct < -5) { score -= 10; reasons.push(`⚠️ ${pnlPct.toFixed(0)}% de prejuízo — vender agora realiza perda`); }
   }
+
+  // === CONFLUÊNCIA ===
+  const conf = calcConfluence(confluenceSignals);
+  if (conf.total >= 3) {
+    if (conf.bullish >= 4) {
+      score += 10; reasons.push(`📊 ${conf.bullish}/${conf.total} indicadores confirmam venda`);
+    } else if (conf.bullish >= 3 && conf.bearish <= 1) {
+      score += 6; reasons.push(`📊 ${conf.bullish}/${conf.total} indicadores de venda`);
+    } else if (conf.bearish >= 3) {
+      score -= 8; reasons.push(`⚠️ ${conf.bearish}/${conf.total} indicadores contra a venda`);
+    } else if (conf.bullish === conf.bearish) {
+      score -= 4; reasons.push(`📊 Sinais mistos (${conf.bullish} pró, ${conf.bearish} contra)`);
+    }
+  }
+
   score = Math.max(0, Math.min(95, Math.round(score)));
   if (score < 25) return { total: 0, reasons: [] };
   return { total: score, reasons };
@@ -1890,21 +2231,59 @@ function calcSellScore(p, riseThresh, pos) {
 function calcStockBuyScore(p, dropThresh, pos) {
   let score = 0;
   const reasons = [];
+  const confluenceSignals = [];
+
+  // === QUEDA % ===
   if (p.changePct != null && p.changePct <= -dropThresh) {
     const dropMag = Math.abs(p.changePct);
-    score += Math.min(40, 18 + (dropMag - dropThresh) * 3.5);
+    score += Math.min(30, 15 + (dropMag - dropThresh) * 3);
     reasons.push(`Queda de ${dropMag.toFixed(1)}% hoje`);
+    confluenceSignals.push(1);
   }
+
+  // === PERTO DA MÍNIMA ===
   if (p.low && p.price && p.low > 0) {
     const dist = ((p.price - p.low) / p.low) * 100;
-    if (dist < 0.5) { score += 18; reasons.push('Na mínima do dia — pode reverter rápido!'); }
-    else if (dist < 1.5) { score += 12; reasons.push('Perto da mínima'); }
-    else if (dist < 3) { score += 6; reasons.push('Próximo da mínima do dia'); }
+    if (dist < 0.5) { score += 15; reasons.push('Na mínima do dia!'); confluenceSignals.push(1); }
+    else if (dist < 1.5) { score += 10; reasons.push('Perto da mínima'); }
+    else if (dist < 3) { score += 5; }
   }
+
+  // === VOLUME + DIREÇÃO ===
   if (p.volume && p.volume > 0 && p.previousClose && p.price < p.previousClose) {
-    score += 10;
-    reasons.push('Volume alto na queda');
+    score += 8; reasons.push('Volume alto na queda — possível capitulação');
+    confluenceSignals.push(1);
   }
+
+  // === DISTÂNCIA DO PREÇO DE FECHAMENTO ANTERIOR ===
+  if (p.previousClose && p.price) {
+    const gapPct = ((p.price - p.previousClose) / p.previousClose) * 100;
+    if (gapPct < -3) { score += 6; reasons.push(`Gap de baixa: ${gapPct.toFixed(1)}% abaixo do fechamento`); }
+  }
+
+  // === FEAR & GREED (macro) ===
+  if (state.fearGreed) {
+    const fg = state.fearGreed.value;
+    if (fg <= 25) { score += 6; reasons.push(`Sentimento de medo global (${fg}/100)`); confluenceSignals.push(1); }
+    else if (fg >= 80) { score -= 5; reasons.push(`⚠️ Euforia global (${fg}/100) — cautela`); confluenceSignals.push(-1); }
+  }
+
+  // === POSIÇÃO DO USUÁRIO ===
+  if (pos && pos.buyPrice && p.price) {
+    const pnlPct = ((p.price - pos.buyPrice) / pos.buyPrice) * 100;
+    if (pnlPct < -15) { score += 8; reasons.push(`${Math.abs(pnlPct).toFixed(0)}% abaixo da compra — oportunidade de média`); }
+    else if (pnlPct < -8) { score += 5; reasons.push(`${Math.abs(pnlPct).toFixed(0)}% abaixo da compra`); }
+    else if (pnlPct > 10) { score -= 4; reasons.push(`⚠️ Já com lucro de ${pnlPct.toFixed(0)}%`); }
+  }
+
+  // === CONFLUÊNCIA ===
+  const conf = calcConfluence(confluenceSignals);
+  if (conf.total >= 2 && conf.bullish >= 2) {
+    score += 6; reasons.push(`📊 ${conf.bullish}/${conf.total} sinais convergentes`);
+  } else if (conf.total >= 2 && conf.bearish >= 2) {
+    score -= 5;
+  }
+
   score = Math.max(0, Math.min(95, Math.round(score)));
   if (score < 25) return { total: 0, reasons: [] };
   return { total: score, reasons };
@@ -1913,17 +2292,52 @@ function calcStockBuyScore(p, dropThresh, pos) {
 function calcStockSellScore(p, riseThresh, pos) {
   let score = 0;
   const reasons = [];
+  const confluenceSignals = [];
+
+  // === ALTA % ===
   if (p.changePct != null && p.changePct >= riseThresh) {
     const riseMag = p.changePct;
-    score += Math.min(40, 18 + (riseMag - riseThresh) * 3.5);
+    score += Math.min(30, 15 + (riseMag - riseThresh) * 3);
     reasons.push(`Alta de ${riseMag.toFixed(1)}% hoje`);
+    confluenceSignals.push(1);
   }
+
+  // === PERTO DA MÁXIMA ===
   if (p.high && p.price && p.high > 0) {
     const dist = ((p.high - p.price) / p.high) * 100;
-    if (dist < 0.5) { score += 18; reasons.push('Na máxima do dia — considere realizar!'); }
-    else if (dist < 1.5) { score += 12; reasons.push('Perto da máxima'); }
-    else if (dist < 3) { score += 6; reasons.push('Próximo da máxima'); }
+    if (dist < 0.5) { score += 15; reasons.push('Na máxima do dia!'); confluenceSignals.push(1); }
+    else if (dist < 1.5) { score += 10; reasons.push('Perto da máxima'); }
+    else if (dist < 3) { score += 5; }
   }
+
+  // === DISTÂNCIA DO FECHAMENTO ANTERIOR ===
+  if (p.previousClose && p.price) {
+    const gapPct = ((p.price - p.previousClose) / p.previousClose) * 100;
+    if (gapPct > 3) { score += 6; reasons.push(`Gap de alta: +${gapPct.toFixed(1)}% acima do fechamento`); }
+  }
+
+  // === FEAR & GREED ===
+  if (state.fearGreed) {
+    const fg = state.fearGreed.value;
+    if (fg >= 80) { score += 6; reasons.push(`Euforia global (${fg}/100) — bom pra realizar`); confluenceSignals.push(1); }
+    else if (fg <= 25) { score -= 5; reasons.push(`⚠️ Medo global (${fg}/100) — vender agora pode ser caro`); confluenceSignals.push(-1); }
+  }
+
+  // === POSIÇÃO DO USUÁRIO ===
+  if (pos && pos.buyPrice && p.price) {
+    const pnlPct = ((p.price - pos.buyPrice) / pos.buyPrice) * 100;
+    if (pnlPct >= 30) { score += 12; reasons.push(`🎉 Lucro de ${pnlPct.toFixed(0)}%!`); }
+    else if (pnlPct >= 15) { score += 8; reasons.push(`+${pnlPct.toFixed(0)}% desde compra — bom lucro`); }
+    else if (pnlPct >= 5) { score += 4; reasons.push(`+${pnlPct.toFixed(0)}% desde compra`); }
+    else if (pnlPct < -5) { score -= 8; reasons.push(`⚠️ ${pnlPct.toFixed(0)}% de prejuízo — vender realiza perda`); }
+  }
+
+  // === CONFLUÊNCIA ===
+  const conf = calcConfluence(confluenceSignals);
+  if (conf.total >= 2 && conf.bullish >= 2) {
+    score += 6; reasons.push(`📊 ${conf.bullish}/${conf.total} sinais de venda`);
+  }
+
   score = Math.max(0, Math.min(95, Math.round(score)));
   if (score < 25) return { total: 0, reasons: [] };
   return { total: score, reasons };
